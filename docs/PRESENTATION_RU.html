@@ -1,0 +1,886 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MoneyBot v2 — Презентация</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #08090f;
+    --bg2: #0d1324;
+    --card: rgba(255,255,255,0.05);
+    --border: rgba(255,255,255,0.08);
+    --text: #f1f5f9;
+    --text2: rgba(255,255,255,0.55);
+    --accent: #818cf8;
+    --accent2: #34d399;
+    --red: #f87171;
+    --yellow: #fbbf24;
+    --blue: #38bdf8;
+  }
+
+  html { font-size: 16px; scroll-behavior: smooth; }
+  body {
+    font-family: 'Inter', -apple-system, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.6;
+    overflow-x: hidden;
+  }
+
+  /* ── Slide Container ── */
+  .slide {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    padding: 60px 80px;
+    position: relative;
+    overflow: hidden;
+  }
+  @media (max-width: 768px) { .slide { padding: 40px 24px; } }
+
+  .slide::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(circle at 20% 20%, rgba(99,102,241,0.12), transparent 40%),
+                radial-gradient(circle at 80% 80%, rgba(52,211,153,0.08), transparent 35%);
+    pointer-events: none;
+  }
+
+  .slide-content { position: relative; z-index: 1; max-width: 1100px; margin: 0 auto; width: 100%; }
+
+  /* ── Slide numbers ── */
+  .slide-num {
+    position: absolute;
+    top: 30px;
+    right: 40px;
+    font-size: 0.75rem;
+    color: var(--text2);
+    letter-spacing: 0.1em;
+    z-index: 2;
+  }
+
+  /* ── Divider between slides ── */
+  .slide + .slide { border-top: 1px solid var(--border); }
+
+  /* ── Typography ── */
+  h1 { font-size: 3.2rem; font-weight: 800; line-height: 1.15; letter-spacing: -0.03em; }
+  h2 { font-size: 2.2rem; font-weight: 700; line-height: 1.2; letter-spacing: -0.02em; margin-bottom: 32px; }
+  h3 { font-size: 1.35rem; font-weight: 600; margin-bottom: 12px; color: var(--accent); }
+  p  { font-size: 1.1rem; color: var(--text2); max-width: 700px; }
+  .subtitle { font-size: 1.3rem; color: var(--text2); margin-top: 16px; max-width: 600px; }
+
+  .gradient-text {
+    background: linear-gradient(135deg, var(--accent), var(--accent2));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  /* ── Cards grid ── */
+  .cards { display: grid; gap: 20px; margin-top: 28px; }
+  .cards-2 { grid-template-columns: repeat(2, 1fr); }
+  .cards-3 { grid-template-columns: repeat(3, 1fr); }
+  .cards-4 { grid-template-columns: repeat(4, 1fr); }
+  @media (max-width: 900px) { .cards-3, .cards-4 { grid-template-columns: repeat(2, 1fr); } }
+  @media (max-width: 600px) { .cards-2, .cards-3, .cards-4 { grid-template-columns: 1fr; } }
+
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    padding: 28px;
+    backdrop-filter: blur(12px);
+  }
+  .card h3 { margin-bottom: 8px; }
+  .card p { font-size: 0.95rem; }
+
+  /* ── Metric card ── */
+  .metric { text-align: center; padding: 32px 20px; }
+  .metric .num { font-size: 2.8rem; font-weight: 800; line-height: 1; }
+  .metric .label { font-size: 0.85rem; color: var(--text2); margin-top: 8px; text-transform: uppercase; letter-spacing: 0.08em; }
+
+  /* ── Steps ── */
+  .steps { display: flex; flex-direction: column; gap: 20px; margin-top: 24px; }
+  .step {
+    display: flex;
+    align-items: flex-start;
+    gap: 20px;
+  }
+  .step-num {
+    flex-shrink: 0;
+    width: 44px;
+    height: 44px;
+    border-radius: 14px;
+    background: linear-gradient(135deg, var(--accent), #6366f1);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    font-size: 1.1rem;
+    color: #fff;
+  }
+  .step-body h3 { color: var(--text); font-size: 1.1rem; margin-bottom: 4px; }
+  .step-body p { font-size: 0.95rem; }
+
+  /* ── Table ── */
+  table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+  th { text-align: left; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.1em; color: var(--text2); padding: 10px 16px; border-bottom: 1px solid var(--border); }
+  td { padding: 14px 16px; border-bottom: 1px solid var(--border); font-size: 0.95rem; }
+  tr:last-child td { border-bottom: none; }
+  .table-wrap { background: var(--card); border: 1px solid var(--border); border-radius: 20px; overflow: hidden; margin-top: 20px; }
+
+  /* ── Tags / badges ── */
+  .tag {
+    display: inline-block;
+    padding: 4px 12px;
+    border-radius: 8px;
+    font-size: 0.8rem;
+    font-weight: 600;
+  }
+  .tag-purple { background: rgba(129,140,248,0.15); color: var(--accent); }
+  .tag-green  { background: rgba(52,211,153,0.15); color: var(--accent2); }
+  .tag-yellow { background: rgba(251,191,36,0.15); color: var(--yellow); }
+  .tag-red    { background: rgba(248,113,113,0.15); color: var(--red); }
+  .tag-blue   { background: rgba(56,189,248,0.15); color: var(--blue); }
+
+  /* ── Diagram (text-based) ── */
+  .diagram {
+    background: rgba(0,0,0,0.3);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 24px 28px;
+    font-family: 'SF Mono', 'Fira Code', monospace;
+    font-size: 0.85rem;
+    line-height: 1.9;
+    color: var(--text2);
+    white-space: pre;
+    overflow-x: auto;
+    margin-top: 20px;
+  }
+  .diagram .sell { color: var(--red); }
+  .diagram .buy  { color: var(--accent2); }
+  .diagram .wait { color: rgba(255,255,255,0.25); }
+  .diagram .price { color: var(--yellow); font-weight: 600; }
+  .diagram .hl { color: var(--accent); font-weight: 600; }
+
+  /* ── Formula block ── */
+  .formula {
+    background: rgba(129,140,248,0.08);
+    border: 1px solid rgba(129,140,248,0.2);
+    border-radius: 14px;
+    padding: 20px 24px;
+    font-family: 'SF Mono', 'Fira Code', monospace;
+    font-size: 1rem;
+    color: var(--accent);
+    margin-top: 16px;
+    display: inline-block;
+  }
+
+  /* ── List ── */
+  .list { list-style: none; margin-top: 16px; }
+  .list li { padding: 8px 0; padding-left: 24px; position: relative; color: var(--text2); font-size: 1rem; }
+  .list li::before { content: ''; position: absolute; left: 0; top: 16px; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
+
+  /* ── Two columns ── */
+  .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; margin-top: 24px; }
+  @media (max-width: 768px) { .cols { grid-template-columns: 1fr; } }
+
+  /* ── Nav dots ── */
+  #nav {
+    position: fixed;
+    right: 20px;
+    top: 50%;
+    transform: translateY(-50%);
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    z-index: 100;
+  }
+  .nav-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.15);
+    cursor: pointer;
+    transition: all 0.3s;
+    border: none;
+  }
+  .nav-dot:hover, .nav-dot.active { background: var(--accent); transform: scale(1.3); }
+  @media (max-width: 768px) { #nav { display: none; } }
+
+  /* ── Print styles ── */
+  @media print {
+    .slide { min-height: auto; page-break-after: always; padding: 40px; }
+    #nav { display: none; }
+    body { background: #fff; color: #1a1a2e; }
+    .card { border: 1px solid #ddd; }
+  }
+</style>
+</head>
+<body>
+
+<!-- Navigation dots -->
+<nav id="nav"></nav>
+
+<!-- ════════════════════════════════════════════════════════════════ -->
+<!-- SLIDE 1: Title -->
+<!-- ════════════════════════════════════════════════════════════════ -->
+<section class="slide" id="s1">
+  <span class="slide-num">01 / 15</span>
+  <div class="slide-content" style="text-align:center;">
+    <div style="margin-bottom:20px;">
+      <span class="tag tag-purple" style="font-size:0.9rem; padding:6px 16px;">v2.0</span>
+    </div>
+    <h1><span class="gradient-text">MoneyBot</span></h1>
+    <p class="subtitle" style="margin:20px auto 0; text-align:center;">
+      Автоматическая сеточная торговля криптовалютами<br>на Binance и Bybit
+    </p>
+    <div style="margin-top:48px; display:flex; gap:12px; justify-content:center; flex-wrap:wrap;">
+      <span class="tag tag-green">6 стратегий</span>
+      <span class="tag tag-blue">Binance + Bybit</span>
+      <span class="tag tag-purple">Paper + Live</span>
+      <span class="tag tag-yellow">Real-time дашборд</span>
+    </div>
+  </div>
+</section>
+
+<!-- ════════════════════════════════════════════════════════════════ -->
+<!-- SLIDE 2: How it works -->
+<!-- ════════════════════════════════════════════════════════════════ -->
+<section class="slide" id="s2">
+  <span class="slide-num">02 / 15</span>
+  <div class="slide-content">
+    <h2>Как это работает</h2>
+    <p>Бот раскладывает сетку ордеров вокруг текущей цены. Цена падает — бот покупает. Цена растёт — бот продаёт. Разница — ваша прибыль.</p>
+
+    <div class="diagram" style="margin-top:32px;">
+<span class="sell">SELL  68 500  ───────────────  ордер на продажу</span>
+<span class="sell">SELL  68 000  ───────────────  ордер на продажу</span>
+<span class="sell">SELL  67 500  ───────────────  ордер на продажу</span>
+<span class="price">      67 250  ─ ─ ─ ─ ─ ─ ─  текущая цена</span>
+<span class="buy">BUY   67 000  ───────────────  ордер на покупку</span>
+<span class="buy">BUY   66 500  ───────────────  ордер на покупку</span>
+<span class="buy">BUY   66 000  ───────────────  ордер на покупку</span>
+    </div>
+
+    <div class="cards cards-3" style="margin-top:32px;">
+      <div class="card">
+        <h3>1. Покупка</h3>
+        <p>Цена падает до уровня buy — бот покупает актив</p>
+      </div>
+      <div class="card">
+        <h3>2. Продажа</h3>
+        <p>Цена растёт до уровня sell — бот продаёт с прибылью</p>
+      </div>
+      <div class="card">
+        <h3>3. Цикл</h3>
+        <p>Бот ставит новый buy-ордер и повторяет цикл</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ════════════════════════════════════════════════════════════════ -->
+<!-- SLIDE 3: Quick start -->
+<!-- ════════════════════════════════════════════════════════════════ -->
+<section class="slide" id="s3">
+  <span class="slide-num">03 / 15</span>
+  <div class="slide-content">
+    <h2>Быстрый старт</h2>
+    <div class="steps">
+      <div class="step">
+        <div class="step-num">1</div>
+        <div class="step-body">
+          <h3>Войдите в систему</h3>
+          <p>Откройте веб-интерфейс и авторизуйтесь с полученными данными</p>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">2</div>
+        <div class="step-body">
+          <h3>Добавьте торговый аккаунт</h3>
+          <p>Аккаунты &rarr; Добавить. Выберите биржу, вставьте API-ключ и секрет. Для начала включите Тестнет</p>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">3</div>
+        <div class="step-body">
+          <h3>Создайте сетку</h3>
+          <p>Сетки &rarr; Создать. Выберите пару, стратегию, укажите параметры. Режим Paper для тестов</p>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">4</div>
+        <div class="step-body">
+          <h3>Запустите</h3>
+          <p>Нажмите &laquo;Запустить&raquo; — бот начнёт работать. Следите за результатами на дашборде</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ════════════════════════════════════════════════════════════════ -->
+<!-- SLIDE 4: Strategies overview -->
+<!-- ════════════════════════════════════════════════════════════════ -->
+<section class="slide" id="s4">
+  <span class="slide-num">04 / 15</span>
+  <div class="slide-content">
+    <h2>6 торговых стратегий</h2>
+    <p>От простой для новичков до адаптивной с капитализацией для профессионалов</p>
+
+    <div class="cards cards-3">
+      <div class="card">
+        <span class="tag tag-green">Начинающим</span>
+        <h3 style="margin-top:12px;">Простая</h3>
+        <p>Фиксированный лот. Купил &rarr; продал &rarr; повторил. Предсказуемая прибыль.</p>
+      </div>
+      <div class="card">
+        <span class="tag tag-blue">Рост капитала</span>
+        <h3 style="margin-top:12px;">Капитализация</h3>
+        <p>Прибыль реинвестируется в увеличение лота. Эффект сложного процента.</p>
+      </div>
+      <div class="card">
+        <span class="tag tag-yellow">Волатильность</span>
+        <h3 style="margin-top:12px;">Реверс</h3>
+        <p>Прибыль через отношение цен. Адаптируется к уровню цены автоматически.</p>
+      </div>
+      <div class="card">
+        <span class="tag tag-red">Продвинутая</span>
+        <h3 style="margin-top:12px;">Реверс + Кап</h3>
+        <p>Комбинация реверса и капитализации. Максимальная адаптация + рост позиции.</p>
+      </div>
+      <div class="card">
+        <span class="tag tag-purple">Умная сетка</span>
+        <h3 style="margin-top:12px;">Адаптивная</h3>
+        <p>Скользящее окно ордеров следует за ценой. Экономит средства.</p>
+      </div>
+      <div class="card">
+        <span class="tag tag-purple">Максимум</span>
+        <h3 style="margin-top:12px;">Адаптивная + Кап</h3>
+        <p>Подсетка адаптируется к цене, лот растёт с каждым циклом прибыли.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ════════════════════════════════════════════════════════════════ -->
+<!-- SLIDE 5: Simple strategy -->
+<!-- ════════════════════════════════════════════════════════════════ -->
+<section class="slide" id="s5">
+  <span class="slide-num">05 / 15</span>
+  <div class="slide-content">
+    <h2>Стратегия: Простая</h2>
+    <div class="cols">
+      <div>
+        <p>Фиксированный лот, фиксированная прибыль за каждый цикл. Самая понятная стратегия.</p>
+        <div class="formula" style="margin-top:24px;">
+          Прибыль = lot_size &times; profit_step
+        </div>
+        <ul class="list" style="margin-top:24px;">
+          <li>Купили 0.01 BTC по 67 000</li>
+          <li>Продали 0.01 BTC по 67 050</li>
+          <li>Прибыль: 0.01 &times; 50 = <strong style="color:var(--accent2)">0.50 USDT</strong></li>
+          <li>Бот ставит новый buy по 67 000 &rarr; цикл</li>
+        </ul>
+      </div>
+      <div>
+        <div class="diagram">
+<span class="hl">Цикл работы:</span>
+
+  BUY 67 000      Цена упала &rarr; купили
+       &darr;
+  SELL 67 050     Цена выросла &rarr; продали
+       &darr;
+  +0.50 USDT     Прибыль зафиксирована
+       &darr;
+  BUY 67 000      Новый ордер &rarr; повтор
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ════════════════════════════════════════════════════════════════ -->
+<!-- SLIDE 6: Capitalization strategy -->
+<!-- ════════════════════════════════════════════════════════════════ -->
+<section class="slide" id="s6">
+  <span class="slide-num">06 / 15</span>
+  <div class="slide-content">
+    <h2>Стратегия: Капитализация</h2>
+    <div class="cols">
+      <div>
+        <p>Прибыль от каждого цикла реинвестируется — лот растёт автоматически.</p>
+        <div class="formula" style="margin-top:24px;">
+          new_lot = lot + (profit &divide; price)
+        </div>
+        <ul class="list" style="margin-top:24px;">
+          <li>Цикл 1: лот = 0.01000 BTC &rarr; +0.50 USDT</li>
+          <li>Цикл 2: лот = 0.01001 BTC &rarr; +0.50 USDT</li>
+          <li>Цикл 50: лот ощутимо вырос</li>
+          <li>Цикл 100: эффект сложного процента</li>
+        </ul>
+      </div>
+      <div>
+        <div class="card" style="text-align:center; padding:40px 20px;">
+          <div style="font-size:0.85rem; color:var(--text2); margin-bottom:12px;">Рост лота за 100 циклов</div>
+          <div style="display:flex; align-items:flex-end; justify-content:center; gap:6px; height:140px;">
+            <div style="width:18px; background:var(--accent); border-radius:4px 4px 0 0; height:30%;opacity:0.5"></div>
+            <div style="width:18px; background:var(--accent); border-radius:4px 4px 0 0; height:35%;opacity:0.55"></div>
+            <div style="width:18px; background:var(--accent); border-radius:4px 4px 0 0; height:42%;opacity:0.6"></div>
+            <div style="width:18px; background:var(--accent); border-radius:4px 4px 0 0; height:50%;opacity:0.65"></div>
+            <div style="width:18px; background:var(--accent); border-radius:4px 4px 0 0; height:58%;opacity:0.7"></div>
+            <div style="width:18px; background:var(--accent); border-radius:4px 4px 0 0; height:67%;opacity:0.75"></div>
+            <div style="width:18px; background:var(--accent); border-radius:4px 4px 0 0; height:76%;opacity:0.8"></div>
+            <div style="width:18px; background:var(--accent); border-radius:4px 4px 0 0; height:85%;opacity:0.85"></div>
+            <div style="width:18px; background:var(--accent); border-radius:4px 4px 0 0; height:92%;opacity:0.9"></div>
+            <div style="width:18px; background:var(--accent2); border-radius:4px 4px 0 0; height:100%;"></div>
+          </div>
+          <div style="display:flex; justify-content:space-between; margin-top:8px; font-size:0.7rem; color:var(--text2);">
+            <span>Цикл 1</span><span>Цикл 100</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ════════════════════════════════════════════════════════════════ -->
+<!-- SLIDE 7: Reverse strategy -->
+<!-- ════════════════════════════════════════════════════════════════ -->
+<section class="slide" id="s7">
+  <span class="slide-num">07 / 15</span>
+  <div class="slide-content">
+    <h2>Стратегии: Реверс и Реверс+Кап</h2>
+    <div class="cols">
+      <div>
+        <h3 style="color:var(--yellow)">Реверс</h3>
+        <p>Прибыль считается через отношение цен, а не фиксированный шаг.</p>
+        <div class="formula" style="margin-top:16px;">
+          profit = amount &times; step &divide; price
+        </div>
+        <ul class="list" style="margin-top:16px;">
+          <li>При высокой цене &rarr; меньше прибыль в base</li>
+          <li>При низкой цене &rarr; больше прибыль в base</li>
+          <li>Автоматическая адаптация к рынку</li>
+        </ul>
+      </div>
+      <div>
+        <h3 style="color:var(--red)">Реверс + Капитализация</h3>
+        <p>Комбинация: реверсная формула прибыли + реинвестирование в лот.</p>
+        <div class="formula" style="margin-top:16px;">
+          new_lot = lot + (amount &times; step &divide; price)
+        </div>
+        <ul class="list" style="margin-top:16px;">
+          <li>Двойная адаптация: к цене и к накоплению</li>
+          <li>Для опытных трейдеров</li>
+          <li>Максимальная эффективность на волатильном рынке</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ════════════════════════════════════════════════════════════════ -->
+<!-- SLIDE 8: Adaptive strategy -->
+<!-- ════════════════════════════════════════════════════════════════ -->
+<section class="slide" id="s8">
+  <span class="slide-num">08 / 15</span>
+  <div class="slide-content">
+    <h2>Стратегия: Адаптивная</h2>
+    <p>Скользящее окно ордеров, которое следует за ценой. Активны только ордера, покрытые авансом.</p>
+
+    <div class="cols" style="margin-top:24px;">
+      <div class="diagram">
+<span class="hl">Цена: 67 000 USDT</span>
+
+<span class="wait">Ур.10  68 000  SELL  [wait]</span>
+<span class="wait">Ур. 9  67 800  SELL  [wait]</span>
+<span class="sell">Ур. 8  67 600  SELL  [placed]  &uarr; top</span>
+<span class="sell">Ур. 7  67 400  SELL  [placed]</span>
+<span class="sell">Ур. 6  67 200  SELL  [placed]</span>
+<span class="price">  ---- 67 000  текущая цена ----</span>
+<span class="buy">Ур. 5  66 800  BUY   [placed]</span>
+<span class="buy">Ур. 4  66 600  BUY   [placed]</span>
+<span class="buy">Ур. 3  66 400  BUY   [placed]  &darr; bottom</span>
+<span class="wait">Ур. 2  66 200  BUY   [wait]</span>
+<span class="wait">Ур. 1  66 000  BUY   [wait]</span>
+      </div>
+      <div>
+        <div class="card" style="margin-bottom:16px;">
+          <h3 style="color:var(--accent2)">Prepay (аванс)</h3>
+          <p>prepay_base &rarr; раздаётся sell-ордерам<br>
+             prepay_quote &rarr; раздаётся buy-ордерам<br>
+             prepay_amount &rarr; аванс на один ордер</p>
+        </div>
+        <div class="card" style="margin-bottom:16px;">
+          <h3 style="color:var(--yellow)">Сдвиг подсетки</h3>
+          <p>Цена вышла за границу &rarr; подсетка сдвигается. Новые ордера получают флаги reBuy / reSell.</p>
+        </div>
+        <div class="card">
+          <h3 style="color:var(--blue)">+ Капитализация</h3>
+          <p>Вариант adaptive_cap добавляет реинвестирование прибыли. При сдвиге лот сбрасывается.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ════════════════════════════════════════════════════════════════ -->
+<!-- SLIDE 9: Comparison table -->
+<!-- ════════════════════════════════════════════════════════════════ -->
+<section class="slide" id="s9">
+  <span class="slide-num">09 / 15</span>
+  <div class="slide-content">
+    <h2>Сравнение стратегий</h2>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Стратегия</th>
+            <th>Прибыль за цикл</th>
+            <th>Лот растёт</th>
+            <th>Подсетка</th>
+            <th>Сложность</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Простая</strong></td>
+            <td>amount &times; step</td>
+            <td>Нет</td>
+            <td>Нет</td>
+            <td><span class="tag tag-green">Легко</span></td>
+          </tr>
+          <tr>
+            <td><strong>Капитализация</strong></td>
+            <td>amount &times; step</td>
+            <td style="color:var(--accent2)">Да</td>
+            <td>Нет</td>
+            <td><span class="tag tag-blue">Средне</span></td>
+          </tr>
+          <tr>
+            <td><strong>Реверс</strong></td>
+            <td>amount &times; step &divide; price</td>
+            <td>Нет</td>
+            <td>Нет</td>
+            <td><span class="tag tag-blue">Средне</span></td>
+          </tr>
+          <tr>
+            <td><strong>Реверс+Кап</strong></td>
+            <td>amount &times; step &divide; price</td>
+            <td style="color:var(--accent2)">Да</td>
+            <td>Нет</td>
+            <td><span class="tag tag-yellow">Сложно</span></td>
+          </tr>
+          <tr>
+            <td><strong>Адаптивная</strong></td>
+            <td>amount &times; step</td>
+            <td>Нет</td>
+            <td style="color:var(--accent2)">Да</td>
+            <td><span class="tag tag-yellow">Сложно</span></td>
+          </tr>
+          <tr>
+            <td><strong>Адаптивная+Кап</strong></td>
+            <td>amount &times; step</td>
+            <td style="color:var(--accent2)">Да</td>
+            <td style="color:var(--accent2)">Да</td>
+            <td><span class="tag tag-red">Макс</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<!-- ════════════════════════════════════════════════════════════════ -->
+<!-- SLIDE 10: Parameters -->
+<!-- ════════════════════════════════════════════════════════════════ -->
+<section class="slide" id="s10">
+  <span class="slide-num">10 / 15</span>
+  <div class="slide-content">
+    <h2>Параметры сетки</h2>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th>Параметр</th><th>Описание</th><th>Рекомендация (BTC/USDT)</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><strong>lot_size</strong></td><td>Объём одного ордера</td><td>0.001 BTC (~67 USDT)</td></tr>
+          <tr><td><strong>profit_step</strong></td><td>Шаг прибыли (buy &rarr; sell)</td><td>30 &ndash; 100 USDT</td></tr>
+          <tr><td><strong>grid_step</strong></td><td>Расстояние между уровнями</td><td>50 &ndash; 200 USDT</td></tr>
+          <tr><td><strong>levels_above</strong></td><td>Sell-уровней выше цены</td><td>3 &ndash; 10</td></tr>
+          <tr><td><strong>levels_below</strong></td><td>Buy-уровней ниже цены</td><td>3 &ndash; 10</td></tr>
+          <tr><td><strong>rebuild_timeout</strong></td><td>Секунд до пересборки</td><td>300 &ndash; 3600</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="cols" style="margin-top:28px;">
+      <div class="card">
+        <h3>Формула: нужно средств</h3>
+        <div class="formula" style="font-size:0.85rem;">
+USDT = lot &times; avg_price &times; levels_below
+Base = lot &times; levels_above
+        </div>
+      </div>
+      <div class="card">
+        <h3>Пример: BTC, 5+5 уровней</h3>
+        <p>Buy: 0.001 &times; ~66 700 &times; 5 &asymp; <strong>333 USDT</strong><br>
+           Sell: 0.001 &times; 5 = <strong>0.005 BTC</strong></p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ════════════════════════════════════════════════════════════════ -->
+<!-- SLIDE 11: Dashboard -->
+<!-- ════════════════════════════════════════════════════════════════ -->
+<section class="slide" id="s11">
+  <span class="slide-num">11 / 15</span>
+  <div class="slide-content">
+    <h2>Дашборд</h2>
+    <p>Полная картина торговли в одном экране</p>
+    <div class="cards cards-4" style="margin-top:28px;">
+      <div class="metric card">
+        <div class="num" style="color:var(--text)">12</div>
+        <div class="label">Всего сеток</div>
+      </div>
+      <div class="metric card">
+        <div class="num" style="color:var(--accent2)">8</div>
+        <div class="label">Активных</div>
+      </div>
+      <div class="metric card">
+        <div class="num" style="color:var(--accent2)">+1 247</div>
+        <div class="label">PnL (USDT)</div>
+      </div>
+      <div class="metric card">
+        <div class="num" style="color:var(--yellow)">78%</div>
+        <div class="label">Win Rate</div>
+      </div>
+    </div>
+    <div class="cards cards-2" style="margin-top:20px;">
+      <div class="card">
+        <h3>Кривая доходности</h3>
+        <p>График кумулятивной прибыли по всем сеткам с возможностью выбора периода</p>
+      </div>
+      <div class="card">
+        <h3>Распределение</h3>
+        <p>Круговая диаграмма: сколько сеток на каждой стратегии</p>
+      </div>
+    </div>
+    <div class="cards cards-2" style="margin-top:20px;">
+      <div class="card">
+        <h3>Стратегии</h3>
+        <p>Детализация по каждой стратегии: сетки, PnL, трейды</p>
+      </div>
+      <div class="card">
+        <h3>Позиции</h3>
+        <p>Таблица всех сеток с уровнями, заполнением, прибылью</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ════════════════════════════════════════════════════════════════ -->
+<!-- SLIDE 12: Paper vs Live -->
+<!-- ════════════════════════════════════════════════════════════════ -->
+<section class="slide" id="s12">
+  <span class="slide-num">12 / 15</span>
+  <div class="slide-content">
+    <h2>Режимы: Paper и Live</h2>
+    <div class="cards cards-3">
+      <div class="card" style="border-color:rgba(52,211,153,0.2);">
+        <span class="tag tag-green">Безопасно</span>
+        <h3 style="margin-top:12px; color:var(--accent2)">Paper</h3>
+        <ul class="list">
+          <li>Симуляция без реальных денег</li>
+          <li>Не нужны валидные API-ключи</li>
+          <li>Для тестирования стратегий</li>
+          <li>Рекомендуется для начала</li>
+        </ul>
+      </div>
+      <div class="card" style="border-color:rgba(251,191,36,0.2);">
+        <span class="tag tag-yellow">Тестовые деньги</span>
+        <h3 style="margin-top:12px; color:var(--yellow)">Live + Testnet</h3>
+        <ul class="list">
+          <li>Реальные ордера на тестовой бирже</li>
+          <li>Виртуальные средства</li>
+          <li>Полная проверка перед продом</li>
+          <li>Binance / Bybit testnet</li>
+        </ul>
+      </div>
+      <div class="card" style="border-color:rgba(248,113,113,0.2);">
+        <span class="tag tag-red">Реальные деньги</span>
+        <h3 style="margin-top:12px; color:var(--red)">Live</h3>
+        <ul class="list">
+          <li>Реальные ордера на бирже</li>
+          <li>Нужны валидные API-ключи</li>
+          <li>Автообработка rate limits</li>
+          <li>Retry при ошибках сети</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ════════════════════════════════════════════════════════════════ -->
+<!-- SLIDE 13: Users & Security -->
+<!-- ════════════════════════════════════════════════════════════════ -->
+<section class="slide" id="s13">
+  <span class="slide-num">13 / 15</span>
+  <div class="slide-content">
+    <h2>Пользователи и безопасность</h2>
+    <div class="cols">
+      <div>
+        <h3>Роли</h3>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Роль</th><th>Доступ</th></tr></thead>
+            <tbody>
+              <tr><td><span class="tag tag-red">Суперадмин</span></td><td>Полный доступ, управление пользователями</td></tr>
+              <tr><td><span class="tag tag-purple">Администратор</span></td><td>Свои аккаунты и сетки</td></tr>
+              <tr><td><span class="tag tag-blue">Наблюдатель</span></td><td>Только просмотр</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <div>
+        <h3>Безопасность</h3>
+        <ul class="list">
+          <li>JWT-токены с автообновлением</li>
+          <li>Двухфакторная аутентификация (2FA)</li>
+          <li>Полный журнал аудита</li>
+          <li>API-ключи: только торговля, без вывода</li>
+          <li>IP-ограничения на бирже</li>
+        </ul>
+        <h3 style="margin-top:24px;">Создание пользователей</h3>
+        <ul class="list">
+          <li>Прямое создание (email + пароль)</li>
+          <li>Приглашение по ссылке (7 дней)</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ════════════════════════════════════════════════════════════════ -->
+<!-- SLIDE 14: Exchange accounts -->
+<!-- ════════════════════════════════════════════════════════════════ -->
+<section class="slide" id="s14">
+  <span class="slide-num">14 / 15</span>
+  <div class="slide-content">
+    <h2>Подключение бирж</h2>
+    <div class="cols">
+      <div>
+        <h3>Binance</h3>
+        <div class="steps">
+          <div class="step">
+            <div class="step-num" style="background:linear-gradient(135deg,#F0B90B,#F8D12F);color:#000;">B</div>
+            <div class="step-body">
+              <h3>Создайте API-ключ</h3>
+              <p>Профиль &rarr; API Management &rarr; Create API. Включите Spot Trading. Задайте IP Restrictions.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div>
+        <h3>Bybit</h3>
+        <div class="steps">
+          <div class="step">
+            <div class="step-num" style="background:linear-gradient(135deg,#F7A600,#FFD700);color:#000;">Y</div>
+            <div class="step-body">
+              <h3>Создайте API-ключ</h3>
+              <p>Профиль &rarr; API &rarr; Create New Key. Тип: System-generated. Разрешения: Trade (Spot).</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:32px; border-color:rgba(248,113,113,0.2); background:rgba(248,113,113,0.05);">
+      <h3 style="color:var(--red)">Важно: безопасность ключей</h3>
+      <ul class="list">
+        <li>Никогда не давайте право на <strong>вывод средств</strong> (Withdraw)</li>
+        <li>Используйте <strong>IP-ограничения</strong> — только IP вашего сервера</li>
+        <li>Секрет показывается <strong>один раз</strong> — сохраните сразу</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- ════════════════════════════════════════════════════════════════ -->
+<!-- SLIDE 15: Summary -->
+<!-- ════════════════════════════════════════════════════════════════ -->
+<section class="slide" id="s15">
+  <span class="slide-num">15 / 15</span>
+  <div class="slide-content" style="text-align:center;">
+    <h1><span class="gradient-text">MoneyBot v2</span></h1>
+    <p class="subtitle" style="margin:20px auto 0; text-align:center;">
+      Автоматическая прибыль на любом рынке
+    </p>
+
+    <div class="cards cards-4" style="margin-top:48px;">
+      <div class="metric card">
+        <div class="num" style="color:var(--accent)">6</div>
+        <div class="label">Стратегий</div>
+      </div>
+      <div class="metric card">
+        <div class="num" style="color:var(--accent2)">2</div>
+        <div class="label">Биржи</div>
+      </div>
+      <div class="metric card">
+        <div class="num" style="color:var(--yellow)">24/7</div>
+        <div class="label">Автоматизация</div>
+      </div>
+      <div class="metric card">
+        <div class="num" style="color:var(--blue)">2FA</div>
+        <div class="label">Безопасность</div>
+      </div>
+    </div>
+
+    <div style="margin-top:48px;">
+      <p style="margin:0 auto; font-size:1rem;">
+        Paper-режим &rarr; Testnet &rarr; Live &mdash; путь от тестирования к реальной торговле
+      </p>
+    </div>
+
+    <div style="margin-top:32px; color:var(--text2); font-size:0.85rem;">
+      Полная документация: docs/MANUAL_RU.md
+    </div>
+  </div>
+</section>
+
+<script>
+  // Build navigation dots
+  const slides = document.querySelectorAll('.slide');
+  const nav = document.getElementById('nav');
+  slides.forEach((s, i) => {
+    const dot = document.createElement('button');
+    dot.className = 'nav-dot';
+    dot.title = `Слайд ${i + 1}`;
+    dot.onclick = () => s.scrollIntoView({ behavior: 'smooth' });
+    nav.appendChild(dot);
+  });
+
+  // Highlight active dot on scroll
+  const dots = nav.querySelectorAll('.nav-dot');
+  const observer = new IntersectionObserver(entries => {
+    entries.forEach(e => {
+      if (e.isIntersecting) {
+        const idx = Array.from(slides).indexOf(e.target);
+        dots.forEach((d, i) => d.classList.toggle('active', i === idx));
+      }
+    });
+  }, { threshold: 0.5 });
+  slides.forEach(s => observer.observe(s));
+</script>
+</body>
+</html>

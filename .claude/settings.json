@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(SSHPASS='dGLVrqgY3Wpr?U' sshpass -e ssh -o StrictHostKeyChecking=no -o PubkeyAuthentication=no root@85.198.80.165 \"pgrep -fa socat; ss -tlnp | grep 4000\")"
+    ]
+  }
+}
