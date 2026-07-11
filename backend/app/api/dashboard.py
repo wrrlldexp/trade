@@ -365,28 +365,33 @@ def _compute_stats(
             date=ts.isoformat(), drawdown=round(dd, 8), peak=round(peak_pnl, 8),
         ))
 
+        # Считаем только завершённые циклы (sell с profit) как "trade"
+        is_completed_trade = o.side == OrderSide.SELL and delta > 0
         if ts >= h24_start:
             pnl_24h += delta
-            trades_24h += 1
+            if is_completed_trade:
+                trades_24h += 1
         if ts >= today_start:
             pnl_today += delta
-            trades_today += 1
+            if is_completed_trade:
+                trades_today += 1
         if ts >= week_start:
             pnl_week += delta
-            trades_week += 1
+            if is_completed_trade:
+                trades_week += 1
         if ts >= month_start:
             pnl_month += delta
-            trades_month += 1
+            if is_completed_trade:
+                trades_month += 1
 
         hour = ts.hour
         hourly_map[hour]["trades"] += 1
         hourly_map[hour]["pnl"] += delta
 
-    total_filled = len(orders)
     avg_profit_per_trade = (total_profit / winning_trades) if winning_trades > 0 else 0.0
     profit_factor = (total_profit / abs(total_loss)) if total_loss != 0 else (999.0 if total_profit > 0 else 0.0)
-    win_rate = (winning_trades / total_filled * 100) if total_filled > 0 else 0.0
-    avg_trade_pnl = ((total_profit + total_loss) / total_filled) if total_filled > 0 else 0.0
+    win_rate = (winning_trades / total_rounds * 100) if total_rounds > 0 else 0.0
+    avg_trade_pnl = ((total_profit + total_loss) / total_rounds) if total_rounds > 0 else 0.0
 
     stats = PeriodStats(
         pnl_24h=round(pnl_24h, 8), pnl_today=round(pnl_today, 8),
@@ -583,7 +588,7 @@ async def get_analytics(
         grid_comparison.append(GridComparison(
             grid_id=str(grid_id), grid_name=g.name, symbol=g.symbol,
             strategy=g.strategy.value, status=g.status.value,
-            total_trades=g_total,
+            total_trades=g_rounds,
             realized_pnl=round(float(g.realized_pnl), 8),
             win_rate=round(g_wins / g_total * 100, 1) if g_total > 0 else 0.0,
             avg_profit=round(g_profit / g_wins, 8) if g_wins > 0 else 0.0,

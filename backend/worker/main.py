@@ -49,7 +49,16 @@ async def main() -> None:
     await bot_logger.info("Воркер запущен, слушаю команды сеток")
 
     async def run_grid_loop(grid_id: uuid.UUID) -> None:
-        tick_interval = 0.1
+        # Читаем tick_interval_sec из БД (дефолт 1.0 сек)
+        tick_interval = 1.0
+        try:
+            async with AsyncSessionLocal() as session:
+                result = await session.execute(select(Grid).where(Grid.id == grid_id))
+                grid_row = result.scalar_one_or_none()
+                if grid_row and grid_row.tick_interval_sec:
+                    tick_interval = float(grid_row.tick_interval_sec)
+        except Exception:
+            pass
         consecutive_timeouts = 0
 
         while not _shutdown.is_set():

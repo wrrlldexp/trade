@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from collections.abc import Awaitable, Callable
 from decimal import Decimal
 from functools import wraps
@@ -176,6 +177,16 @@ class CcxtExecutor(BaseExecutor):
             self.exchange.set_sandbox_mode(True)
 
         self.testnet = testnet
+
+        # TTL-кэш: снижает кол-во запросов к бирже
+        self._ticker_cache: Ticker | None = None
+        self._ticker_cache_ts: float = 0.0
+        self._ticker_ttl: float = 1.0  # секунда
+
+        self._open_orders_cache: list[dict[str, str]] | None = None
+        self._open_orders_cache_ts: float = 0.0
+        self._open_orders_ttl: float = 2.0  # секунды
+
         log.info(
             "ccxt_executor.initialized",
             exchange=self.exchange_id,
@@ -185,10 +196,16 @@ class CcxtExecutor(BaseExecutor):
 
     @retry_with_backoff()
     async def get_ticker(self) -> Ticker:
+        now = time.monotonic()
+        if self._ticker_cache is not None and (now - self._ticker_cache_ts) < self._ticker_ttl:
+            return self._ticker_cache
         ticker = await self.exchange.fetch_ticker(self.symbol)
         bid = Decimal(str(ticker.get("bid") or ticker.get("last") or 0))
         ask = Decimal(str(ticker.get("ask") or ticker.get("last") or 0))
-        return Ticker(bid=bid, ask=ask)
+        result = Ticker(bid=bid, ask=ask)
+        self._ticker_cache = result
+        self._ticker_cache_ts = now
+        return result
 
     @retry_with_backoff()
     async def get_balance(self) -> Balance:
@@ -218,6 +235,7 @@ class CcxtExecutor(BaseExecutor):
                 float(price),
                 params={"timeInForce": "GTC"},
             )
+            self._open_orders_cache = None  # инвалидируем кэш
             return OrderResult(exchange_order_id=str(order["id"]), success=True)
         except ccxt.InsufficientFunds:
             log.warning("ccxt_executor.insufficient_funds", exchange=self.exchange_id, symbol=self.symbol)
@@ -257,6 +275,7 @@ class CcxtExecutor(BaseExecutor):
         )
         try:
             await self.exchange.cancel_order(exchange_order_id, self.symbol)
+            self._open_orders_cache = None  # инвалидируем кэш
             return True
         except ccxt.OrderNotFound:
             log.warning(
@@ -332,6 +351,9 @@ class CcxtExecutor(BaseExecutor):
         ВАЖНО: None означает что запрос не удался — нельзя считать что ордеров нет.
         Пустой [] означает что ордеров действительно нет.
         """
+        now = time.monotonic()
+        if self._open_orders_cache is not None and (now - self._open_orders_cache_ts) < self._open_orders_ttl:
+            return self._open_orders_cache
         try:
             orders = await self.exchange.fetch_open_orders(self.symbol)
         except ccxt.ExchangeError as exc:
@@ -343,7 +365,7 @@ class CcxtExecutor(BaseExecutor):
             )
             return None
 
-        return [
+        result = [
             {
                 "id": str(order.get("id", "")),
                 "side": str(order.get("side", "")).lower(),
@@ -353,6 +375,9 @@ class CcxtExecutor(BaseExecutor):
             }
             for order in orders
         ]
+        self._open_orders_cache = result
+        self._open_orders_cache_ts = now
+        return result
 
     async def close(self) -> None:
         try:
