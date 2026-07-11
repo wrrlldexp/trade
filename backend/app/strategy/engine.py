@@ -416,15 +416,15 @@ class GridEngine:
     # Главный tick
     # ------------------------------------------------------------------
 
-    async def tick(self, state: GridState, now: datetime) -> GridState:
+    async def tick(self, state: GridState, now: datetime) -> tuple[GridState, Ticker]:
         ticker = await self.executor.get_ticker()
 
         # Защита от некорректного тикера (bid/ask = 0 или спред > 5%)
         if ticker.bid <= 0 or ticker.ask <= 0:
-            return state
+            return state, ticker
         spread_pct = (ticker.ask - ticker.bid) / ticker.mid * Decimal("100")
         if spread_pct > Decimal("5"):
-            return state  # Аномальный спред — пропускаем тик
+            return state, ticker  # Аномальный спред — пропускаем тик
 
         # Проверка fills — on_order_filled сам ставит зеркальный ордер (flip)
         placed_orders = [o for o in state.orders if o.status == OrderStatus.PLACED]
@@ -434,7 +434,7 @@ class GridEngine:
             open_orders = await self.executor.get_open_orders()
             if open_orders is None:
                 # Ошибка запроса — пропускаем тик, не трогаем ордера
-                return state
+                return state, ticker
             open_ids = {o["id"] for o in open_orders}
             missing_orders = [o for o in placed_orders if o.exchange_order_id not in open_ids]
 
@@ -461,4 +461,4 @@ class GridEngine:
                 # Простые стратегии: полная перестройка
                 state = await self.rebuild_grid(state, ticker.mid)
 
-        return state
+        return state, ticker

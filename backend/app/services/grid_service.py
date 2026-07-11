@@ -421,15 +421,13 @@ async def tick_grid(db: AsyncSession, grid_id: uuid.UUID) -> Grid:
         prev_pnl = state.realized_pnl
         prev_trades = state.total_trades
 
-        new_state = await engine.tick(state, datetime.now(UTC))
+        new_state, ticker = await engine.tick(state, datetime.now(UTC))
         pnl_delta = new_state.realized_pnl - prev_pnl
         new_trades = new_state.total_trades - prev_trades
         registry.states[grid.id] = new_state
         await _persist_state(db, grid, new_state)
 
         if new_trades > 0:
-            # Трекинг slippage: сравниваем текущую mid цену с ожидаемой
-            ticker = await engine.executor.get_ticker()
             mid_price = float(ticker.mid)
 
             event = TradeEvent(

@@ -12,7 +12,7 @@ async def test_full_scenario(engine, paper_executor, now) -> None:
 
     # Двигаем цену вниз — сработает buy ордер на 900
     await paper_executor.set_ticker(Decimal("899"), Decimal("899"))
-    state = await engine.tick(state, now)
+    state, _ = await engine.tick(state, now)
 
     # Buy-ордер исполнился, создался mirror sell — но sell ещё не исполнен
     filled = [o for o in state.orders if o.status == OrderStatus.FILLED]
@@ -20,7 +20,7 @@ async def test_full_scenario(engine, paper_executor, now) -> None:
 
     # Теперь двигаем цену вверх чтобы sell исполнился (sell at 950)
     await paper_executor.set_ticker(Decimal("951"), Decimal("951"))
-    state = await engine.tick(state, now)
+    state, _ = await engine.tick(state, now)
 
     # Теперь цикл завершён
     assert state.total_trades >= 1
@@ -31,6 +31,6 @@ async def test_full_scenario(engine, paper_executor, now) -> None:
     assert state.last_boundary_hit_at is not None
 
     # Rebuild после timeout
-    rebuilt = await engine.tick(state, now + timedelta(seconds=61))
+    rebuilt, _ = await engine.tick(state, now + timedelta(seconds=61))
     assert rebuilt.center_price >= Decimal("0")
     assert len(rebuilt.orders) >= 6

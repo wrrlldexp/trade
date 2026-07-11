@@ -68,7 +68,7 @@ async def test_adaptive_tick_fills_and_flips(adaptive_engine, adaptive_executor)
 
     # Двигаем цену вниз чтобы сработал buy
     await adaptive_executor.set_ticker(Decimal("899"), Decimal("899"))
-    state = await adaptive_engine.tick(state, now)
+    state, _ = await adaptive_engine.tick(state, now)
 
     # Должен произойти fill и flip
     filled = [o for o in state.orders if o.status == OrderStatus.FILLED]
