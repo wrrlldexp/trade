@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncGenerator, Generator
 from pathlib import Path
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -40,8 +41,10 @@ def client(session_factory: async_sessionmaker[AsyncSession]) -> Generator[TestC
                 raise
 
     app.dependency_overrides[get_db] = override_get_db
-    with TestClient(app) as test_client:
-        yield test_client
+    # Disable rate limiting in tests
+    with patch("app.api.auth.check_rate_limit", new_callable=AsyncMock, return_value=True):
+        with TestClient(app) as test_client:
+            yield test_client
     app.dependency_overrides.clear()
 
 
@@ -86,3 +89,47 @@ def auth_headers(client: TestClient, seeded_users: dict[str, User]) -> dict[str,
         token = response.json()["tokens"]["access_token"]
         users[key] = {"Authorization": f"Bearer {token}"}
     return users
+
+
+def _create_account(client: TestClient, headers: dict, name: str = "Paper") -> dict:
+    """Helper: create an exchange account and return JSON."""
+    return client.post(
+        "/api/accounts/",
+        headers=headers,
+        json={
+            "name": name,
+            "exchange": "binance",
+            "api_key": "testkey",
+            "api_secret": "testsecret",
+            "is_testnet": True,
+        },
+    ).json()
+
+
+def _create_grid(
+    client: TestClient,
+    headers: dict,
+    account_id: str,
+    name: str = "Test Grid",
+    strategy: str = "simple",
+) -> dict:
+    """Helper: create a grid and return JSON."""
+    resp = client.post(
+        "/api/grids/",
+        headers=headers,
+        json={
+            "account_id": account_id,
+            "name": name,
+            "symbol": "BTC/USDT",
+            "mode": "paper",
+            "strategy": strategy,
+            "lot_size": "0.1",
+            "profit_step": "50",
+            "grid_step": "100",
+            "levels_above": 2,
+            "levels_below": 2,
+            "rebuild_timeout_sec": 60,
+        },
+    )
+    assert resp.status_code == 200
+    return resp.json()

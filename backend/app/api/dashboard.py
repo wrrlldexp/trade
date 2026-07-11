@@ -582,6 +582,11 @@ async def get_analytics(
 
         started = g.started_at or g.created_at
         stopped = g.stopped_at or now
+        # Ensure both are timezone-aware for subtraction
+        if started and started.tzinfo is None:
+            started = started.replace(tzinfo=UTC)
+        if stopped and stopped.tzinfo is None:
+            stopped = stopped.replace(tzinfo=UTC)
         runtime_hours = (stopped - started).total_seconds() / 3600 if started else 0.0
         pnl_per_hour = float(g.realized_pnl) / runtime_hours if runtime_hours > 0 else 0.0
 
