@@ -12,6 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.core import bot_logger
+from app.core import grid_activity_logger
 from app.core.logging import configure_logging, get_logger
 from app.core.redis_client import consume_local_channel, get_redis_client
 from app.db import AsyncSessionLocal
@@ -263,10 +264,21 @@ async def main() -> None:
                     _last_tick[grid_id] = now
                     _tasks[grid_id] = asyncio.create_task(run_grid_loop(grid_id))
 
+    async def periodic_api_stats() -> None:
+        """Записывать API-статистику каждые 5 минут для всех активных сеток."""
+        while not _shutdown.is_set():
+            await asyncio.sleep(300)  # 5 минут
+            for grid_id in list(_tasks.keys()):
+                try:
+                    await grid_activity_logger.log_api_stats(grid_id)
+                except Exception:
+                    pass
+
     command_task = asyncio.create_task(consume_commands())
     heartbeat_task = asyncio.create_task(publish_heartbeat())
     sync_task = asyncio.create_task(sync_running_grids())
     watchdog_task = asyncio.create_task(watchdog())
+    api_stats_task = asyncio.create_task(periodic_api_stats())
 
     while not _shutdown.is_set():
         try:
@@ -275,7 +287,7 @@ async def main() -> None:
             log.info("worker.heartbeat", active_grids=len(_tasks))
 
     # H-7: корректная остановка — отменяем и ждём завершения
-    all_tasks_to_cancel = [command_task, heartbeat_task, sync_task, watchdog_task, *_tasks.values()]
+    all_tasks_to_cancel = [command_task, heartbeat_task, sync_task, watchdog_task, api_stats_task, *_tasks.values()]
     for task in all_tasks_to_cancel:
         task.cancel()
     await asyncio.gather(*all_tasks_to_cancel, return_exceptions=True)

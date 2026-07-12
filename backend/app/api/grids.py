@@ -17,6 +17,7 @@ from app.models import (
     BotLog,
     ExchangeAccount,
     Grid,
+    GridActivityLog,
     GridAnalyticsSession,
     GridStatus,
     OrderStatus,
@@ -385,3 +386,38 @@ async def get_analytics_session_data(
             for l in logs
         ],
     }
+
+
+@router.get("/{grid_id}/activity")
+async def get_grid_activity(
+    grid_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_role(UserRole.ADMIN, UserRole.ULTRAADMIN)),
+    event: str | None = None,
+    limit: int = 100,
+    offset: int = 0,
+):
+    """Детальный лог активности сетки — тики, fill-ы, перестроения, API-статистика."""
+    await _get_grid(db, user, grid_id)  # проверка доступа
+
+    query = (
+        select(GridActivityLog)
+        .where(GridActivityLog.grid_id == grid_id)
+        .order_by(GridActivityLog.created_at.desc())
+    )
+    if event:
+        query = query.where(GridActivityLog.event == event)
+    query = query.offset(offset).limit(min(limit, 500))
+
+    result = await db.execute(query)
+    logs = result.scalars().all()
+
+    return [
+        {
+            "id": log.id,
+            "event": log.event,
+            "data": log.data,
+            "created_at": log.created_at.isoformat(),
+        }
+        for log in logs
+    ]

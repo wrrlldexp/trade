@@ -1,6 +1,6 @@
 """Все ORM модели проекта."""
 
-from app.models.audit import AuditLog, BotLog, GridAnalyticsSession, TradeEvent
+from app.models.audit import AuditLog, BotLog, GridActivityLog, GridAnalyticsSession, TradeEvent
 from app.models.enums import (
     GridMode,
     GridStatus,
@@ -19,6 +19,7 @@ __all__ = [
     "AuditLog",
     "BotLog",
     "GridAnalyticsSession",
+    "GridActivityLog",
     "ExchangeAccount",
     "Grid",
     "GridMode",

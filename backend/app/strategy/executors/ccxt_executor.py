@@ -9,6 +9,8 @@ from decimal import Decimal
 from functools import wraps
 from typing import Any, TypeVar
 
+import uuid
+
 import ccxt.async_support as ccxt
 
 from app.config import get_settings
@@ -177,6 +179,7 @@ class CcxtExecutor(BaseExecutor):
             self.exchange.set_sandbox_mode(True)
 
         self.testnet = testnet
+        self.grid_id: uuid.UUID | None = None  # set by grid_service for API tracking
 
         # TTL-кэш: снижает кол-во запросов к бирже
         self._ticker_cache: Ticker | None = None
@@ -194,11 +197,18 @@ class CcxtExecutor(BaseExecutor):
             symbol=self.symbol,
         )
 
+    def _record_api_call(self) -> None:
+        """Record an API call for rate tracking."""
+        if self.grid_id is not None:
+            from app.core.grid_activity_logger import get_api_counter
+            get_api_counter(self.grid_id).record()
+
     @retry_with_backoff()
     async def get_ticker(self) -> Ticker:
         now = time.monotonic()
         if self._ticker_cache is not None and (now - self._ticker_cache_ts) < self._ticker_ttl:
             return self._ticker_cache
+        self._record_api_call()
         ticker = await self.exchange.fetch_ticker(self.symbol)
         bid = Decimal(str(ticker.get("bid") or ticker.get("last") or 0))
         ask = Decimal(str(ticker.get("ask") or ticker.get("last") or 0))
@@ -209,6 +219,7 @@ class CcxtExecutor(BaseExecutor):
 
     @retry_with_backoff()
     async def get_balance(self) -> Balance:
+        self._record_api_call()
         balance = await self.exchange.fetch_balance()
         base, quote = self.symbol.split("/", maxsplit=1)
         free = balance.get("free", {})
@@ -228,6 +239,7 @@ class CcxtExecutor(BaseExecutor):
             amount=str(amount),
         )
         try:
+            self._record_api_call()
             order = await self.exchange.create_limit_order(
                 self.symbol,
                 side.value,
@@ -274,6 +286,7 @@ class CcxtExecutor(BaseExecutor):
             order_id=exchange_order_id,
         )
         try:
+            self._record_api_call()
             await self.exchange.cancel_order(exchange_order_id, self.symbol)
             self._open_orders_cache = None  # инвалидируем кэш
             return True
@@ -299,6 +312,7 @@ class CcxtExecutor(BaseExecutor):
 
     @retry_with_backoff()
     async def get_order_status(self, exchange_order_id: str) -> OrderStatus:
+        self._record_api_call()
         try:
             params: dict[str, Any] = {}
             # Bybit: suppress "not in last 500 orders" warning
@@ -355,6 +369,7 @@ class CcxtExecutor(BaseExecutor):
         if self._open_orders_cache is not None and (now - self._open_orders_cache_ts) < self._open_orders_ttl:
             return self._open_orders_cache
         try:
+            self._record_api_call()
             orders = await self.exchange.fetch_open_orders(self.symbol)
         except ccxt.ExchangeError as exc:
             log.error(

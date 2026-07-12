@@ -128,6 +128,37 @@ class BotLog(Base):
         return f"<BotLog {self.level.value} {self.message[:50]}>"
 
 
+class GridActivityLog(Base):
+    """Детальный лог активности сетки — тики, fill-ы, перестроения, API-статистика."""
+
+    __tablename__ = "grid_activity_logs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+
+    grid_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(),
+        ForeignKey("grids.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+
+    event: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
+
+    data: Mapped[dict] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"), nullable=False,
+    )
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+        index=True,
+    )
+
+    def __repr__(self) -> str:
+        return f"<GridActivityLog {self.event} grid={self.grid_id}>"
+
+
 class GridAnalyticsSession(Base):
     """Сессия аналитики: 24-часовой снэпшот после изменения настроек сетки пользователем."""
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 import uuid
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -13,6 +14,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core import bot_logger
+from app.core import grid_activity_logger
+from app.core.grid_activity_logger import get_api_counter, remove_api_counter
 from app.core.redis_client import publish
 from app.models import (
     ExchangeAccount,
@@ -178,6 +181,9 @@ async def _ensure_runtime(grid: Grid) -> tuple[GridEngine, GridState]:
         return engine, state
 
     executor = await _create_executor(grid.account, grid)
+    # Привязываем grid_id для трекинга API-вызовов
+    if hasattr(executor, "grid_id"):
+        executor.grid_id = grid.id
     engine = GridEngine(_params_from_grid(grid), executor)
     state = _state_from_grid(grid)
     if isinstance(executor, PaperExecutor):
@@ -219,6 +225,8 @@ async def start_grid(db: AsyncSession, grid_id: uuid.UUID) -> Grid:
         prev_trades = grid.total_trades
 
         executor = await _create_executor(grid.account, grid)
+        if hasattr(executor, "grid_id"):
+            executor.grid_id = grid.id
         try:
             engine = GridEngine(_params_from_grid(grid), executor)
 
@@ -250,6 +258,16 @@ async def start_grid(db: AsyncSession, grid_id: uuid.UUID) -> Grid:
         grid_id=grid.id,
         payload={"symbol": grid.symbol, "strategy": grid.strategy.value, "mode": grid.mode.value},
     )
+    await grid_activity_logger.log_grid_start(
+        grid.id,
+        name=grid.name,
+        symbol=grid.symbol,
+        strategy=grid.strategy.value,
+        mode=grid.mode.value,
+        center_price=state.center_price,
+        levels=grid.levels_above + grid.levels_below,
+        tick_interval=float(grid.tick_interval_sec or 1.0),
+    )
     return grid
 
 
@@ -275,6 +293,12 @@ async def stop_grid(db: AsyncSession, grid_id: uuid.UUID) -> Grid:
             await close()
     await publish("grids:commands", json.dumps({"action": "stop", "grid_id": str(grid.id)}))
     await bot_logger.info(f"Сетка остановлена: {grid.name}", grid_id=grid.id)
+    await grid_activity_logger.log_grid_stop(
+        grid.id,
+        name=grid.name,
+        total_trades=grid.total_trades,
+        realized_pnl=grid.realized_pnl,
+    )
     return grid
 
 
@@ -421,14 +445,43 @@ async def tick_grid(db: AsyncSession, grid_id: uuid.UUID) -> Grid:
         prev_pnl = state.realized_pnl
         prev_trades = state.total_trades
 
+        tick_start = time.monotonic()
         new_state, ticker = await engine.tick(state, datetime.now(UTC))
+        tick_duration_ms = (time.monotonic() - tick_start) * 1000
+
         pnl_delta = new_state.realized_pnl - prev_pnl
         new_trades = new_state.total_trades - prev_trades
         registry.states[grid.id] = new_state
         await _persist_state(db, grid, new_state)
 
+        # Activity log: каждый тик
+        placed_count = sum(1 for o in new_state.orders if o.status == OrderStatus.PLACED)
+        await grid_activity_logger.log_tick(
+            grid.id,
+            bid=ticker.bid,
+            ask=ticker.ask,
+            spread=ticker.ask - ticker.bid,
+            placed_orders=placed_count,
+            filled_orders=new_trades,
+            total_trades=new_state.total_trades,
+            realized_pnl=new_state.realized_pnl,
+            tick_duration_ms=tick_duration_ms,
+        )
+
         if new_trades > 0:
             mid_price = float(ticker.mid)
+
+            # Activity log: fill
+            await grid_activity_logger.log_fill(
+                grid.id,
+                side="mixed",
+                price=ticker.mid,
+                price_sell=ticker.ask,
+                amount=Decimal("0"),
+                profit=pnl_delta,
+                total_trades=new_state.total_trades,
+                realized_pnl=new_state.realized_pnl,
+            )
 
             event = TradeEvent(
                 grid_id=grid.id,
@@ -479,5 +532,10 @@ async def tick_grid(db: AsyncSession, grid_id: uuid.UUID) -> Grid:
             f"Ошибка при тике сетки {grid.name}: {exc}",
             grid_id=grid.id,
             exc=exc,
+        )
+        await grid_activity_logger.log_error(
+            grid.id,
+            error=str(exc)[:500],
+            context="tick_grid",
         )
         raise

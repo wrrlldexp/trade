@@ -11,6 +11,17 @@ from app.models.enums import OrderSide, OrderStatus, StrategyType
 from app.strategy.executor import Executor
 from app.strategy.types import GridParams, GridState, LiveOrder, Ticker
 
+# Lazy import to avoid circular deps — imported at call site
+_activity_logger = None
+
+
+def _get_activity_logger():
+    global _activity_logger
+    if _activity_logger is None:
+        from app.core import grid_activity_logger
+        _activity_logger = grid_activity_logger
+    return _activity_logger
+
 # Точность для BTC-подобных сумм (8 знаков)
 _PREC = Decimal("0.00000001")
 
@@ -26,6 +37,10 @@ class GridEngine:
     def __init__(self, params: GridParams, executor: Executor):
         self.params = params
         self.executor = executor
+
+    @property
+    def _grid_id(self) -> uuid.UUID | None:
+        return getattr(self.executor, "grid_id", None)
 
     # ------------------------------------------------------------------
     # Построение начальной сетки
@@ -373,6 +388,20 @@ class GridEngine:
 
         state.orders.extend(new_orders)
         state.last_boundary_hit_at = None
+
+        # Activity log: shift
+        gid = self._grid_id
+        if gid is not None:
+            logger = _get_activity_logger()
+            await logger.log_shift(
+                gid,
+                direction="up" if delta > 0 else "down",
+                delta=abs(delta),
+                current_price=current_price,
+                cancelled_orders=len(placed),
+                new_orders=len(new_orders),
+            )
+
         return state
 
     # ------------------------------------------------------------------
@@ -400,16 +429,34 @@ class GridEngine:
         return now - state.last_boundary_hit_at >= timedelta(seconds=self.params.rebuild_timeout_sec)
 
     async def rebuild_grid(self, state: GridState, new_center_price: Decimal) -> GridState:
+        old_center = state.center_price
+        cancelled_count = 0
         for order in state.orders:
             if order.status == OrderStatus.PLACED:
                 await asyncio.sleep(0.15)
                 await self.executor.cancel_order(order.exchange_order_id)
                 order.status = OrderStatus.CANCELLED
+                cancelled_count += 1
 
         new_state = await self.build_initial_grid(new_center_price)
         new_state.realized_pnl = state.realized_pnl
         new_state.total_trades = state.total_trades
         new_state.last_boundary_hit_at = None
+
+        # Activity log: rebuild
+        gid = self._grid_id
+        if gid is not None:
+            logger = _get_activity_logger()
+            new_orders_count = sum(1 for o in new_state.orders if o.status == OrderStatus.PLACED)
+            await logger.log_rebuild(
+                gid,
+                reason="boundary_timeout",
+                old_center=old_center,
+                new_center=new_center_price,
+                cancelled_orders=cancelled_count,
+                new_orders=new_orders_count,
+            )
+
         return new_state
 
     # ------------------------------------------------------------------
