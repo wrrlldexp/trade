@@ -313,12 +313,39 @@ async def stop_grid(db: AsyncSession, grid_id: uuid.UUID) -> Grid:
     grid = await _load_grid(db, grid_id)
     state = registry.states.get(grid.id)
     executor = registry.executors.get(grid.id)
+
+    # Отменяем ордера из state (если есть)
     if state is not None and executor is not None:
         for order in state.orders:
             if order.status == OrderStatus.PLACED:
                 await executor.cancel_order(order.exchange_order_id)
                 order.status = OrderStatus.CANCELLED
         await _persist_state(db, grid, state)
+
+    # Гарантированная очистка: отменяем ВСЕ ордера на бирже по этому символу.
+    # Защита от рассинхрона state↔биржа (осиротевшие ордера).
+    cleanup_executor = executor
+    if cleanup_executor is None:
+        try:
+            cleanup_executor = await _create_executor(grid.account, grid)
+        except Exception:
+            cleanup_executor = None
+
+    if cleanup_executor is not None:
+        try:
+            open_orders = await cleanup_executor.get_open_orders()
+            if open_orders:
+                await bot_logger.warning(
+                    f"Остановка: найдено {len(open_orders)} ордеров на бирже, отменяю все",
+                    grid_id=grid.id,
+                )
+                for o in open_orders:
+                    try:
+                        await cleanup_executor.cancel_order(o["id"])
+                    except Exception:
+                        pass
+        except Exception:
+            pass
 
     grid.status = GridStatus.STOPPED
     grid.stopped_at = datetime.now(UTC)
@@ -327,6 +354,10 @@ async def stop_grid(db: AsyncSession, grid_id: uuid.UUID) -> Grid:
     removed_executor = registry.executors.pop(grid.id, None)
     if removed_executor is not None:
         close = getattr(removed_executor, "close", None)
+        if callable(close):
+            await close()
+    elif cleanup_executor is not None and cleanup_executor is not executor:
+        close = getattr(cleanup_executor, "close", None)
         if callable(close):
             await close()
     await publish("grids:commands", json.dumps({"action": "stop", "grid_id": str(grid.id)}))
