@@ -476,3 +476,57 @@ async def get_grid_report(
         media_type="image/png",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+@router.get("/{grid_id}/report/text")
+async def get_grid_report_text(
+    grid_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_role(UserRole.ADMIN, UserRole.ULTRAADMIN)),
+    hours: int = Query(default=24, ge=1, le=168, description="Период в часах (макс 7 дней)"),
+):
+    """Генерирует текстовый отчёт с расшифровками на русском языке."""
+    grid = await _get_grid(db, user, grid_id)
+
+    period_end = datetime.now(UTC)
+    period_start = period_end - timedelta(hours=hours)
+
+    query = (
+        select(GridActivityLog)
+        .where(
+            GridActivityLog.grid_id == grid_id,
+            GridActivityLog.created_at >= period_start,
+        )
+        .order_by(GridActivityLog.created_at.asc())
+    )
+    result = await db.execute(query)
+    logs_raw = result.scalars().all()
+
+    if not logs_raw:
+        raise HTTPException(status_code=404, detail="No activity data for this period")
+
+    logs = [
+        {
+            "event": log.event,
+            "data": log.data,
+            "created_at": log.created_at,
+        }
+        for log in logs_raw
+    ]
+
+    from app.core.report_generator import generate_text_report
+
+    text = generate_text_report(
+        grid_name=grid.name,
+        symbol=grid.symbol,
+        logs=logs,
+        period_start=period_start,
+        period_end=period_end,
+    )
+
+    filename = f"report_{grid.name}_{period_start.strftime('%Y%m%d_%H%M')}.txt"
+    return Response(
+        content=text.encode("utf-8"),
+        media_type="text/plain; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
