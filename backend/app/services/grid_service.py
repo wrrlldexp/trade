@@ -174,7 +174,7 @@ def _state_from_grid(grid: Grid) -> GridState:
     )
 
 
-async def _ensure_runtime(grid: Grid) -> tuple[GridEngine, GridState]:
+async def _ensure_runtime(db: AsyncSession, grid: Grid) -> tuple[GridEngine, GridState]:
     engine = registry.engines.get(grid.id)
     state = registry.states.get(grid.id)
     if engine is not None and state is not None:
@@ -189,22 +189,23 @@ async def _ensure_runtime(grid: Grid) -> tuple[GridEngine, GridState]:
     if isinstance(executor, PaperExecutor):
         executor.seed_open_orders(state.orders)
 
-    # FIX: если grid RUNNING, но в state нет placed-ордеров — рассинхрон
-    # (API-процесс разместил ордера, но worker прочитал БД до коммита).
-    # Отменяем возможные "осиротевшие" ордера на бирже и строим сетку заново.
+    # Если grid RUNNING, но в state нет placed-ордеров — нужно построить сетку.
+    # API-процесс НЕ размещает ордера, это делает worker здесь.
     placed = [o for o in state.orders if o.status == OrderStatus.PLACED]
     if not placed and grid.status == GridStatus.RUNNING:
-        await bot_logger.warning(
-            "Сетка RUNNING но нет placed-ордеров — пересборка",
+        await bot_logger.info(
+            "Построение сетки ордеров",
             grid_id=grid.id,
         )
-        # Отменяем осиротевшие ордера на бирже (если есть)
+        # Отменяем осиротевшие ордера на бирже (если есть от прошлых запусков)
+        cancelled_count = 0
         try:
             open_orders = await executor.get_open_orders()
             if open_orders:
                 for o in open_orders:
                     try:
                         await executor.cancel_order(o["id"])
+                        cancelled_count += 1
                     except Exception:
                         pass
         except Exception:
@@ -218,13 +219,24 @@ async def _ensure_runtime(grid: Grid) -> tuple[GridEngine, GridState]:
         state.realized_pnl = prev_pnl
         state.total_trades = prev_trades
 
-        await grid_activity_logger.log_rebuild(
+        # Сохраняем ордера в БД сразу
+        await _persist_state(db, grid, state)
+        await db.flush()
+
+        new_placed = sum(1 for o in state.orders if o.status == OrderStatus.PLACED)
+        await bot_logger.info(
+            f"Сетка построена: {new_placed} ордеров, центр {center_price}",
+            grid_id=grid.id,
+        )
+        await grid_activity_logger.log_grid_start(
             grid.id,
-            reason="sync_fix",
-            old_center=Decimal("0"),
-            new_center=center_price,
-            cancelled_orders=len(open_orders) if open_orders else 0,
-            new_orders=sum(1 for o in state.orders if o.status == OrderStatus.PLACED),
+            name=grid.name,
+            symbol=grid.symbol,
+            strategy=grid.strategy.value,
+            mode=grid.mode.value,
+            center_price=center_price,
+            levels=grid.levels_above + grid.levels_below,
+            tick_interval=float(grid.tick_interval_sec or 1.0),
         )
 
     registry.executors[grid.id] = executor
@@ -238,7 +250,7 @@ async def start_grid(db: AsyncSession, grid_id: uuid.UUID) -> Grid:
 
     # C-4: защита от конкурентного запуска через lock
     async with registry.get_lock(grid.id):
-        if grid.status == GridStatus.RUNNING and grid.orders:
+        if grid.status == GridStatus.RUNNING:
             await publish("grids:commands", json.dumps({"action": "start", "grid_id": str(grid.id)}))
             return grid
 
@@ -248,6 +260,8 @@ async def start_grid(db: AsyncSession, grid_id: uuid.UUID) -> Grid:
             close = getattr(old_executor, "close", None)
             if callable(close):
                 await close()
+        registry.engines.pop(grid.id, None)
+        registry.states.pop(grid.id, None)
 
         # Удаляем старые error-ордера перед новым запуском
         await db.execute(
@@ -258,36 +272,10 @@ async def start_grid(db: AsyncSession, grid_id: uuid.UUID) -> Grid:
         )
         await db.flush()
 
-        # Сохраняем PnL и trades до перезапуска
-        prev_pnl = grid.realized_pnl
-        prev_trades = grid.total_trades
-
-        executor = await _create_executor(grid.account, grid)
-        if hasattr(executor, "grid_id"):
-            executor.grid_id = grid.id
-        try:
-            engine = GridEngine(_params_from_grid(grid), executor)
-
-            ticker = await executor.get_ticker()
-            center_price = ticker.mid if ticker.mid > 0 else grid.grid_step * Decimal("10")
-            state = await engine.build_initial_grid(center_price)
-            # Восстанавливаем накопленные PnL и trades
-            state.realized_pnl = prev_pnl
-            state.total_trades = prev_trades
-        except Exception:
-            # L-3: закрываем executor при ошибке build
-            close = getattr(executor, "close", None)
-            if callable(close):
-                await close()
-            raise
-
+        # API-процесс НЕ размещает ордера — это делает worker в _ensure_runtime.
+        # Здесь только ставим статус RUNNING и отправляем команду worker-у.
         grid.status = GridStatus.RUNNING
         grid.started_at = datetime.now(UTC)
-        await _persist_state(db, grid, state)
-
-        registry.executors[grid.id] = executor
-        registry.engines[grid.id] = engine
-        registry.states[grid.id] = state
 
     await db.flush()
     await publish("grids:commands", json.dumps({"action": "start", "grid_id": str(grid.id)}))
@@ -295,16 +283,6 @@ async def start_grid(db: AsyncSession, grid_id: uuid.UUID) -> Grid:
         f"Сетка запущена: {grid.name} ({grid.symbol}), стратегия {grid.strategy.value}",
         grid_id=grid.id,
         payload={"symbol": grid.symbol, "strategy": grid.strategy.value, "mode": grid.mode.value},
-    )
-    await grid_activity_logger.log_grid_start(
-        grid.id,
-        name=grid.name,
-        symbol=grid.symbol,
-        strategy=grid.strategy.value,
-        mode=grid.mode.value,
-        center_price=state.center_price,
-        levels=grid.levels_above + grid.levels_below,
-        tick_interval=float(grid.tick_interval_sec or 1.0),
     )
     return grid
 
@@ -508,7 +486,7 @@ _MIN_CONVERT_AMOUNT = Decimal("1.1")
 async def tick_grid(db: AsyncSession, grid_id: uuid.UUID) -> Grid:
     grid = await _load_grid(db, grid_id)
     try:
-        engine, state = await _ensure_runtime(grid)
+        engine, state = await _ensure_runtime(db, grid)
 
         # Сохраняем до тика: tick() мутирует state in-place, new_state IS state
         prev_pnl = state.realized_pnl
