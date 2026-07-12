@@ -494,9 +494,12 @@ class GridEngine:
                     order.status = OrderStatus.FILLED
                     order.filled_at = now
                     state = await self.on_order_filled(state, order)
-                elif actual_status == OrderStatus.CANCELLED:
+                elif actual_status in (OrderStatus.CANCELLED, OrderStatus.ERROR):
+                    # Ордера нет на бирже и статус не FILLED — считаем отменённым.
+                    # ERROR обычно означает что биржа не может найти ордер
+                    # (Bybit "not in last 500 orders"), но его нет в open_orders —
+                    # значит он точно не активен.
                     order.status = OrderStatus.CANCELLED
-                # ERROR — не трогаем, попробуем в следующем тике
 
         # Boundary check
         state = self.check_boundary(state, ticker.mid, now)
