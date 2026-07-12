@@ -189,6 +189,44 @@ async def _ensure_runtime(grid: Grid) -> tuple[GridEngine, GridState]:
     if isinstance(executor, PaperExecutor):
         executor.seed_open_orders(state.orders)
 
+    # FIX: если grid RUNNING, но в state нет placed-ордеров — рассинхрон
+    # (API-процесс разместил ордера, но worker прочитал БД до коммита).
+    # Отменяем возможные "осиротевшие" ордера на бирже и строим сетку заново.
+    placed = [o for o in state.orders if o.status == OrderStatus.PLACED]
+    if not placed and grid.status == GridStatus.RUNNING:
+        await bot_logger.warning(
+            "Сетка RUNNING но нет placed-ордеров — пересборка",
+            grid_id=grid.id,
+        )
+        # Отменяем осиротевшие ордера на бирже (если есть)
+        try:
+            open_orders = await executor.get_open_orders()
+            if open_orders:
+                for o in open_orders:
+                    try:
+                        await executor.cancel_order(o["id"])
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+
+        prev_pnl = state.realized_pnl
+        prev_trades = state.total_trades
+        ticker = await executor.get_ticker()
+        center_price = ticker.mid if ticker.mid > 0 else grid.grid_step * Decimal("10")
+        state = await engine.build_initial_grid(center_price)
+        state.realized_pnl = prev_pnl
+        state.total_trades = prev_trades
+
+        await grid_activity_logger.log_rebuild(
+            grid.id,
+            reason="sync_fix",
+            old_center=Decimal("0"),
+            new_center=center_price,
+            cancelled_orders=len(open_orders) if open_orders else 0,
+            new_orders=sum(1 for o in state.orders if o.status == OrderStatus.PLACED),
+        )
+
     registry.executors[grid.id] = executor
     registry.engines[grid.id] = engine
     registry.states[grid.id] = state
