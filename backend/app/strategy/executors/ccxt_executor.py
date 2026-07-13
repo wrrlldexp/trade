@@ -190,6 +190,9 @@ class CcxtExecutor(BaseExecutor):
         self._open_orders_cache_ts: float = 0.0
         self._open_orders_ttl: float = 2.0  # секунды
 
+        # WebSocket stream reference (set externally by worker)
+        self._ws_stream: Any = None
+
         log.info(
             "ccxt_executor.initialized",
             exchange=self.exchange_id,
@@ -205,6 +208,11 @@ class CcxtExecutor(BaseExecutor):
 
     @retry_with_backoff()
     async def get_ticker(self) -> Ticker:
+        # Prefer WebSocket ticker if fresh (< 5 sec old)
+        if self._ws_stream is not None and self._ws_stream.last_ticker is not None:
+            if self._ws_stream.ticker_age_sec < 5.0:
+                return self._ws_stream.last_ticker
+
         now = time.monotonic()
         if self._ticker_cache is not None and (now - self._ticker_cache_ts) < self._ticker_ttl:
             return self._ticker_cache
@@ -360,17 +368,46 @@ class CcxtExecutor(BaseExecutor):
 
     @retry_with_backoff()
     async def get_open_orders(self) -> list[dict[str, str]] | None:
-        """Возвращает список открытых ордеров или None при ошибке.
+        """Возвращает ПОЛНЫЙ список открытых ордеров или None при ошибке.
 
         ВАЖНО: None означает что запрос не удался — нельзя считать что ордеров нет.
         Пустой [] означает что ордеров действительно нет.
+
+        Использует пагинацию: Bybit/Binance могут возвращать не все ордера
+        за один запрос (лимит ~50). Делаем запросы пока не получим все.
         """
         now = time.monotonic()
         if self._open_orders_cache is not None and (now - self._open_orders_cache_ts) < self._open_orders_ttl:
             return self._open_orders_cache
         try:
             self._record_api_call()
-            orders = await self.exchange.fetch_open_orders(self.symbol)
+            all_orders: list[dict] = []
+            since = None
+            max_pages = 10  # защита от бесконечного цикла
+
+            for _ in range(max_pages):
+                batch = await self.exchange.fetch_open_orders(self.symbol, since=since, limit=50)
+                if not batch:
+                    break
+                all_orders.extend(batch)
+                if len(batch) < 50:
+                    break  # последняя страница
+                # Для следующей страницы: берём timestamp последнего ордера
+                last_ts = batch[-1].get("timestamp")
+                if last_ts and last_ts == since:
+                    break  # нет прогресса
+                since = last_ts
+                self._record_api_call()
+
+            # Дедупликация по ID (на случай перекрытия страниц)
+            seen_ids: set[str] = set()
+            orders: list[dict] = []
+            for o in all_orders:
+                oid = str(o.get("id", ""))
+                if oid not in seen_ids:
+                    seen_ids.add(oid)
+                    orders.append(o)
+
         except ccxt.ExchangeError as exc:
             log.error(
                 "ccxt_executor.open_orders_failed",

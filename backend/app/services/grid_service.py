@@ -570,6 +570,17 @@ async def tick_grid(db: AsyncSession, grid_id: uuid.UUID) -> Grid:
                     "grid_id": str(grid.id),
                     "realized_pnl": str(new_state.realized_pnl),
                     "total_trades": new_state.total_trades,
+                    "placed_orders": placed_count,
+                    "bid": str(ticker.bid),
+                    "ask": str(ticker.ask),
+                    "spread": str(ticker.ask - ticker.bid),
+                    "tick_duration_ms": round(tick_duration_ms),
+                    "ws_connected": bool(
+                        registry.executors.get(grid.id)
+                        and hasattr(registry.executors[grid.id], "_ws_stream")
+                        and getattr(registry.executors[grid.id], "_ws_stream", None) is not None
+                        and registry.executors[grid.id]._ws_stream.connected
+                    ),
                 }
             ),
         )
@@ -586,3 +597,113 @@ async def tick_grid(db: AsyncSession, grid_id: uuid.UUID) -> Grid:
             context="tick_grid",
         )
         raise
+
+
+async def process_ws_fill(db: AsyncSession, grid_id: uuid.UUID, exchange_order_id: str) -> bool:
+    """Process a single fill event from WebSocket — instant reaction without full tick.
+
+    Returns True if the fill was processed (counter-order placed), False if skipped.
+    This is the fast path: WS reports order filled → find it in state → flip immediately.
+    """
+    async with registry.get_lock(grid_id):
+        state = registry.states.get(grid_id)
+        engine = registry.engines.get(grid_id)
+        if state is None or engine is None:
+            return False
+
+        # Find the order in current state
+        filled_order = None
+        for order in state.orders:
+            if order.exchange_order_id == exchange_order_id and order.status == OrderStatus.PLACED:
+                filled_order = order
+                break
+
+        if filled_order is None:
+            return False  # Already processed or unknown order
+
+        # Mark as filled and place counter-order
+        filled_order.status = OrderStatus.FILLED
+        filled_order.filled_at = datetime.now(UTC)
+        prev_pnl = state.realized_pnl
+        prev_trades = state.total_trades
+
+        state = await engine.on_order_filled(state, filled_order)
+        registry.states[grid_id] = state
+
+        pnl_delta = state.realized_pnl - prev_pnl
+        new_trades = state.total_trades - prev_trades
+
+        # Persist to DB
+        grid = await _load_grid(db, grid_id)
+        await _persist_state(db, grid, state)
+
+        # Activity log
+        executor = registry.executors.get(grid_id)
+        ticker = None
+        if executor:
+            try:
+                ticker = await executor.get_ticker()
+            except Exception:
+                pass
+
+        if ticker:
+            await grid_activity_logger.log_fill(
+                grid_id,
+                side=filled_order.side.value,
+                price=filled_order.price,
+                price_sell=filled_order.price_sell,
+                amount=filled_order.amount,
+                profit=pnl_delta,
+                total_trades=state.total_trades,
+                realized_pnl=state.realized_pnl,
+            )
+
+        # Trade event in DB
+        if new_trades > 0:
+            event = TradeEvent(
+                grid_id=grid_id,
+                event_type=TradeEventType.FILLED,
+                price=filled_order.price,
+                pnl_delta=pnl_delta,
+                payload={
+                    "source": "websocket",
+                    "side": filled_order.side.value,
+                    "total_trades": state.total_trades,
+                    "new_trades": new_trades,
+                },
+            )
+            db.add(event)
+
+        # Publish real-time event
+        await publish(
+            f"grid:{grid_id}:events",
+            json.dumps({
+                "type": "grid.fill",
+                "grid_id": str(grid_id),
+                "side": filled_order.side.value,
+                "price": str(filled_order.price),
+                "amount": str(filled_order.amount),
+                "pnl_delta": str(pnl_delta),
+                "realized_pnl": str(state.realized_pnl),
+                "total_trades": state.total_trades,
+                "source": "websocket",
+            }),
+        )
+
+        await bot_logger.info(
+            f"WS fill: {filled_order.side.value} @ {filled_order.price}, "
+            f"PnL +{pnl_delta}, total: {state.realized_pnl}",
+            grid_id=grid_id,
+            payload={"source": "websocket", "order_id": exchange_order_id},
+        )
+
+        # Auto-convert profit
+        if grid.auto_convert_to and pnl_delta > 0:
+            grid.unconverted_pnl = (grid.unconverted_pnl or Decimal("0")) + pnl_delta
+            if grid.unconverted_pnl >= _MIN_CONVERT_AMOUNT:
+                if executor:
+                    converted = await _auto_convert_profit(grid, executor, grid.unconverted_pnl)
+                    if converted:
+                        grid.unconverted_pnl = Decimal("0")
+
+        return True
