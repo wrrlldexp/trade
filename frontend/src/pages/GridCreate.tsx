@@ -10,13 +10,11 @@ import { Card } from "../components/Card";
 import { Input } from "../components/Input";
 import { Select } from "../components/Select";
 
-const STRATEGY_LABELS: Record<StrategyType, string> = {
+const STRATEGY_LABELS: Record<string, string> = {
   simple: "Простая",
   capitalization: "Капитализация",
   reverse: "Реверс",
-  reverse_cap: "Реверс + Капитализация",
   adaptive: "Адаптивная",
-  adaptive_cap: "Адаптивная + Капитализация",
 };
 
 export function GridCreatePage() {

@@ -424,6 +424,108 @@ async def get_grid_activity(
     ]
 
 
+@router.get("/{grid_id}/charts")
+async def get_grid_charts(
+    grid_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_role(UserRole.VIEWER, UserRole.ADMIN, UserRole.SUPERADMIN, UserRole.ULTRAADMIN)),
+    hours: int = Query(default=24, ge=1, le=720, description="Период в часах (макс 30 дней)"),
+):
+    """Time-series данные для 4 графиков: прибыль, курс, остаток, просадка."""
+    grid = await _get_grid(db, user, grid_id)
+
+    period_start = datetime.now(UTC) - timedelta(hours=hours)
+
+    # Тик-логи: содержат bid/ask/realized_pnl/equity каждый тик
+    tick_result = await db.execute(
+        select(GridActivityLog)
+        .where(
+            GridActivityLog.grid_id == grid_id,
+            GridActivityLog.event == "tick",
+            GridActivityLog.created_at >= period_start,
+        )
+        .order_by(GridActivityLog.created_at.asc())
+    )
+    tick_logs = tick_result.scalars().all()
+
+    # Fill-логи: содержат pnl_delta каждого fill-а
+    fill_result = await db.execute(
+        select(GridActivityLog)
+        .where(
+            GridActivityLog.grid_id == grid_id,
+            GridActivityLog.event == "fill",
+            GridActivityLog.created_at >= period_start,
+        )
+        .order_by(GridActivityLog.created_at.asc())
+    )
+    fill_logs = fill_result.scalars().all()
+
+    # Стартовый объём сетки (приблизительно: levels * lot * center_price)
+    total_levels = grid.levels_above + grid.levels_below
+    if grid.lot_quote:
+        start_amount = float(grid.lot_quote) * total_levels
+    else:
+        start_amount = float(grid.lot_size) * total_levels * float(grid.orders[0].price if grid.orders else 0)
+
+    # Прореживание: максимум ~1000 точек для графиков
+    max_points = 1000
+    step = max(1, len(tick_logs) // max_points)
+
+    # Собираем time-series
+    price_series: list[dict] = []
+    pnl_series: list[dict] = []
+    equity_series: list[dict] = []
+    drawdown_series: list[dict] = []
+
+    for i, log in enumerate(tick_logs):
+        if i % step != 0 and i != len(tick_logs) - 1:
+            continue
+        d = log.data or {}
+        ts = log.created_at.isoformat()
+        bid = float(d.get("bid", 0))
+        ask = float(d.get("ask", 0))
+        mid = (bid + ask) / 2 if bid and ask else 0
+        pnl = float(d.get("realized_pnl", 0))
+        eq = float(d.get("equity", 0))
+
+        price_series.append({"t": ts, "bid": bid, "ask": ask, "mid": round(mid, 8)})
+        pnl_series.append({"t": ts, "pnl": pnl})
+        equity_series.append({"t": ts, "equity": round(eq, 4)})
+
+        # Просадка = (equity - start_amount) / start_amount * 100
+        if start_amount > 0 and eq > 0:
+            dd_pct = round((eq - start_amount) / start_amount * 100, 4)
+        else:
+            dd_pct = 0
+        drawdown_series.append({"t": ts, "drawdown_pct": dd_pct, "equity": round(eq, 4)})
+
+    # Fill events для точек на графике PnL
+    fills: list[dict] = []
+    for log in fill_logs:
+        d = log.data or {}
+        fills.append({
+            "t": log.created_at.isoformat(),
+            "side": d.get("side", ""),
+            "price": float(d.get("price", 0)),
+            "profit": float(d.get("profit", 0)),
+            "realized_pnl": float(d.get("realized_pnl", 0)),
+        })
+
+    return {
+        "grid_id": str(grid.id),
+        "grid_name": grid.name,
+        "symbol": grid.symbol,
+        "start_amount": round(start_amount, 4),
+        "hours": hours,
+        "points": len(price_series),
+        "price": price_series,
+        "pnl": pnl_series,
+        "equity": equity_series,
+        "drawdown": drawdown_series,
+        "fills": fills,
+    }
+
+
 @router.get("/{grid_id}/report")
 async def get_grid_report(
     grid_id: UUID,

@@ -15,6 +15,7 @@ from app.db import get_db
 from app.models import ExchangeAccount, Grid, GridStatus, TradeEvent, User, UserRole
 from app.models.enums import OrderSide, OrderStatus, TradeEventType
 from app.models.grid import GridOrder
+from app.models.audit import GridActivityLog
 
 router = APIRouter()
 
@@ -300,8 +301,13 @@ def _compute_stats(
     grids_map: dict,
     now: datetime,
     fee_rate: float = 0.001,
+    equity_series: list[tuple[str, float]] | None = None,
 ) -> tuple[PeriodStats, list[DrawdownPoint]]:
-    """Compute period stats + drawdown from a list of filled GridOrder objects."""
+    """Compute period stats + drawdown from a list of filled GridOrder objects.
+
+    equity_series: list of (iso_date, equity_value) from tick logs.
+    If provided, drawdown is computed from equity (accounts for current asset price).
+    """
     h24_start = now - timedelta(hours=24)
     today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
     week_start = today_start - timedelta(days=7)
@@ -313,10 +319,27 @@ def _compute_stats(
     total_volume = total_commission = 0.0
     winning_trades = losing_trades = total_rounds = 0
 
-    cumulative_pnl = peak_pnl = max_drawdown = 0.0
+    max_drawdown = 0.0
     drawdown_curve: list[DrawdownPoint] = []
     current_win_streak = current_loss_streak = max_win_streak = max_loss_streak = 0
     hourly_map: dict[int, dict] = {h: {"trades": 0, "pnl": 0.0} for h in range(24)}
+
+    # Просадка по equity (учитывает текущую цену актива в каждом тике)
+    if equity_series:
+        peak_eq = 0.0
+        for ts_iso, eq in equity_series:
+            if eq <= 0:
+                continue
+            if eq > peak_eq:
+                peak_eq = eq
+            dd = eq - peak_eq
+            if dd < max_drawdown:
+                max_drawdown = dd
+            drawdown_curve.append(DrawdownPoint(
+                date=ts_iso, drawdown=round(dd, 8), peak=round(peak_eq, 8),
+            ))
+
+    cumulative_pnl = peak_pnl = 0.0
 
     for o in orders:
         delta = float(o.profit or 0)
@@ -355,15 +378,17 @@ def _compute_stats(
         if delta < worst_trade:
             worst_trade = delta
 
-        cumulative_pnl += delta
-        if cumulative_pnl > peak_pnl:
-            peak_pnl = cumulative_pnl
-        dd = cumulative_pnl - peak_pnl
-        if dd < max_drawdown:
-            max_drawdown = dd
-        drawdown_curve.append(DrawdownPoint(
-            date=ts.isoformat(), drawdown=round(dd, 8), peak=round(peak_pnl, 8),
-        ))
+        # Fallback: если нет equity_series, считаем просадку по realized PnL
+        if not equity_series:
+            cumulative_pnl += delta
+            if cumulative_pnl > peak_pnl:
+                peak_pnl = cumulative_pnl
+            dd = cumulative_pnl - peak_pnl
+            if dd < max_drawdown:
+                max_drawdown = dd
+            drawdown_curve.append(DrawdownPoint(
+                date=ts.isoformat(), drawdown=round(dd, 8), peak=round(peak_pnl, 8),
+            ))
 
         # Считаем только завершённые циклы (sell с profit) как "trade"
         is_completed_trade = o.side == OrderSide.SELL and delta > 0
@@ -484,6 +509,31 @@ async def get_analytics(
     )
     all_filled = list(filled_orders_result.scalars().all())
 
+    # Equity из тик-логов — для расчёта просадки по текущей цене актива
+    equity_logs_result = await db.execute(
+        select(GridActivityLog)
+        .where(
+            GridActivityLog.grid_id.in_(grid_ids),
+            GridActivityLog.event == "tick",
+            GridActivityLog.created_at >= since,
+        )
+        .order_by(GridActivityLog.created_at.asc())
+    )
+    equity_logs = list(equity_logs_result.scalars().all())
+
+    # Группируем equity по grid_id и общий ряд
+    grid_equity_map: dict[str, list[tuple[str, float]]] = {}
+    all_equity_series: list[tuple[str, float]] = []
+    for log in equity_logs:
+        eq = float(log.data.get("equity", 0))
+        if eq <= 0:
+            continue
+        ts_iso = log.created_at.isoformat()
+        grid_equity_map.setdefault(log.grid_id, []).append((ts_iso, eq))
+        all_equity_series.append((ts_iso, eq))
+    # Сортируем общий ряд по времени
+    all_equity_series.sort(key=lambda x: x[0])
+
     # Group filled orders by grid
     grid_orders_map: dict[str, list] = {}
     for o in all_filled:
@@ -515,7 +565,8 @@ async def get_analytics(
     per_grid_analytics: list[GridAnalytics] = []
     for grid_id, g in grids.items():
         g_orders = grid_orders_map.get(grid_id, [])
-        g_stats, g_dd = _compute_stats(g_orders, grids, now)
+        g_equity = grid_equity_map.get(grid_id, [])
+        g_stats, g_dd = _compute_stats(g_orders, grids, now, equity_series=g_equity)
         g_daily = _compute_daily_activity(g_orders)
         g_hourly = _compute_hourly(g_orders)
 
@@ -555,7 +606,7 @@ async def get_analytics(
         ))
 
     # ─── Aggregated totals ───
-    total_stats, total_dd = _compute_stats(all_filled, grids, now)
+    total_stats, total_dd = _compute_stats(all_filled, grids, now, equity_series=all_equity_series)
     total_daily = _compute_daily_activity(all_filled)
     total_hourly = _compute_hourly(all_filled)
 
@@ -571,14 +622,28 @@ async def get_analytics(
         g_commission = sum(float(o.amount or 0) * float(o.price or 0) * 0.001 * 2 for o in g_orders)
         g_rounds = sum(1 for o in g_orders if o.side == OrderSide.SELL and float(o.profit or 0) > 0)
 
-        g_cum = g_peak = g_max_dd = 0.0
-        for o in g_orders:
-            g_cum += float(o.profit or 0)
-            if g_cum > g_peak:
-                g_peak = g_cum
-            dd = g_cum - g_peak
-            if dd < g_max_dd:
-                g_max_dd = dd
+        # Просадка по equity (текущая цена актива), fallback на realized PnL
+        g_eq = grid_equity_map.get(grid_id, [])
+        g_max_dd = 0.0
+        if g_eq:
+            g_peak_eq = 0.0
+            for _, eq_val in g_eq:
+                if eq_val <= 0:
+                    continue
+                if eq_val > g_peak_eq:
+                    g_peak_eq = eq_val
+                dd = eq_val - g_peak_eq
+                if dd < g_max_dd:
+                    g_max_dd = dd
+        else:
+            g_cum = g_peak = 0.0
+            for o in g_orders:
+                g_cum += float(o.profit or 0)
+                if g_cum > g_peak:
+                    g_peak = g_cum
+                dd = g_cum - g_peak
+                if dd < g_max_dd:
+                    g_max_dd = dd
 
         started = g.started_at or g.created_at
         stopped = g.stopped_at or now

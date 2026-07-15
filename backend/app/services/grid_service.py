@@ -23,6 +23,7 @@ from app.models import (
     GridMode,
     GridOrder,
     GridStatus,
+    OrderSide,
     OrderStatus,
     TradeEvent,
     TradeEventType,
@@ -488,21 +489,40 @@ async def tick_grid(db: AsyncSession, grid_id: uuid.UUID) -> Grid:
     try:
         engine, state = await _ensure_runtime(db, grid)
 
-        # Сохраняем до тика: tick() мутирует state in-place, new_state IS state
-        prev_pnl = state.realized_pnl
-        prev_trades = state.total_trades
+        # Lock: защита от одновременной обработки tick + WS fill
+        async with registry.get_lock(grid_id):
+            # Сохраняем до тика: tick() мутирует state in-place, new_state IS state
+            prev_pnl = state.realized_pnl
+            prev_trades = state.total_trades
 
-        tick_start = time.monotonic()
-        new_state, ticker = await engine.tick(state, datetime.now(UTC))
-        tick_duration_ms = (time.monotonic() - tick_start) * 1000
+            tick_start = time.monotonic()
+            new_state, ticker = await engine.tick(state, datetime.now(UTC))
+            tick_duration_ms = (time.monotonic() - tick_start) * 1000
 
-        pnl_delta = new_state.realized_pnl - prev_pnl
-        new_trades = new_state.total_trades - prev_trades
-        registry.states[grid.id] = new_state
-        await _persist_state(db, grid, new_state)
+            pnl_delta = new_state.realized_pnl - prev_pnl
+            new_trades = new_state.total_trades - prev_trades
+            registry.states[grid.id] = new_state
+            await _persist_state(db, grid, new_state)
 
-        # Activity log: каждый тик
+        # Activity log: каждый тик (вне lock — не мутирует state)
         placed_count = sum(1 for o in new_state.orders if o.status == OrderStatus.PLACED)
+
+        # Equity = стоимость всех ордеров (quote) + base по текущей цене + realized PnL
+        # BUY ордера: заморозили quote (price * amount), при fill получим base
+        # SELL ордера: держим base (amount), при fill получим quote
+        equity = new_state.realized_pnl
+        for o in new_state.orders:
+            if o.status == OrderStatus.PLACED:
+                if o.side == OrderSide.BUY:
+                    equity += o.price * o.amount  # замороженные USDT
+                else:
+                    equity += o.amount * ticker.mid  # base по текущей цене
+            elif o.status == OrderStatus.FILLED:
+                if o.side == OrderSide.BUY:
+                    equity += o.amount * ticker.mid  # купленный base по текущей цене
+                else:
+                    equity += o.price_sell * o.amount  # полученные USDT
+
         await grid_activity_logger.log_tick(
             grid.id,
             bid=ticker.bid,
@@ -513,6 +533,7 @@ async def tick_grid(db: AsyncSession, grid_id: uuid.UUID) -> Grid:
             total_trades=new_state.total_trades,
             realized_pnl=new_state.realized_pnl,
             tick_duration_ms=tick_duration_ms,
+            equity=equity,
         )
 
         if new_trades > 0:
@@ -694,7 +715,7 @@ async def process_ws_fill(db: AsyncSession, grid_id: uuid.UUID, exchange_order_i
             f"WS fill: {filled_order.side.value} @ {filled_order.price}, "
             f"PnL +{pnl_delta}, total: {state.realized_pnl}",
             grid_id=grid_id,
-            payload={"source": "websocket", "order_id": exchange_order_id},
+            payload={"fill_source": "websocket", "order_id": exchange_order_id},
         )
 
         # Auto-convert profit

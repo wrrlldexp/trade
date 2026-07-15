@@ -186,6 +186,9 @@ export function GridDetailPage() {
               >
                 {isRunning ? "Стоп" : "Запуск"}
               </Button>
+              <Button className="bg-white/5 text-white/70 hover:bg-white/10" onClick={() => navigate(`/grids/${grid.id}/charts`)}>
+                Графики
+              </Button>
               <Button className="bg-white/5 text-white/70 hover:bg-white/10" onClick={openEdit}>
                 Настроить
               </Button>

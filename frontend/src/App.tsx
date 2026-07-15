@@ -15,6 +15,7 @@ const GridListPage = lazy(() => import("./pages/GridList").then(m => ({ default:
 const GridCreatePage = lazy(() => import("./pages/GridCreate").then(m => ({ default: m.GridCreatePage })));
 const GridDetailPage = lazy(() => import("./pages/GridDetail").then(m => ({ default: m.GridDetailPage })));
 const ChartPage = lazy(() => import("./pages/Chart").then(m => ({ default: m.ChartPage })));
+const GridChartsPage = lazy(() => import("./pages/GridCharts").then(m => ({ default: m.GridChartsPage })));
 const AccountsPage = lazy(() => import("./pages/Accounts").then(m => ({ default: m.AccountsPage })));
 const ProfilePage = lazy(() => import("./pages/Profile").then(m => ({ default: m.ProfilePage })));
 const LogsPage = lazy(() => import("./pages/Logs").then(m => ({ default: m.LogsPage })));
@@ -75,6 +76,7 @@ export default function App() {
           <Route path="/grids" element={<Layout><GridListPage /></Layout>} />
           <Route path="/grids/new" element={<Layout><GridCreatePage /></Layout>} />
           <Route path="/grids/:gridId" element={<Layout><GridDetailPage /></Layout>} />
+          <Route path="/grids/:gridId/charts" element={<Layout><GridChartsPage /></Layout>} />
           <Route path="/chart" element={<Layout><ChartPage /></Layout>} />
           <Route path="/accounts" element={<Layout><AccountsPage /></Layout>} />
           <Route path="/profile" element={<Layout><ProfilePage /></Layout>} />

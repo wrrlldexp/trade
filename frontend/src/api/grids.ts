@@ -45,3 +45,22 @@ export async function listGridEvents(gridId: string) {
   const { data } = await apiClient.get<TradeEvent[]>(`/api/grids/${gridId}/events`);
   return data;
 }
+
+export interface GridChartsData {
+  grid_id: string;
+  grid_name: string;
+  symbol: string;
+  start_amount: number;
+  hours: number;
+  points: number;
+  price: { t: string; bid: number; ask: number; mid: number }[];
+  pnl: { t: string; pnl: number }[];
+  equity: { t: string; equity: number }[];
+  drawdown: { t: string; drawdown_pct: number; equity: number }[];
+  fills: { t: string; side: string; price: number; profit: number; realized_pnl: number }[];
+}
+
+export async function fetchGridCharts(gridId: string, hours = 24) {
+  const { data } = await apiClient.get<GridChartsData>(`/api/grids/${gridId}/charts?hours=${hours}`);
+  return data;
+}

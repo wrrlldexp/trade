@@ -99,9 +99,10 @@ async def log_tick(
     total_trades: int,
     realized_pnl: Decimal,
     tick_duration_ms: float,
+    equity: Decimal | None = None,
 ) -> None:
     counter = get_api_counter(grid_id)
-    await _write(grid_id, "tick", {
+    data: dict = {
         "bid": str(bid),
         "ask": str(ask),
         "spread": str(spread),
@@ -112,7 +113,10 @@ async def log_tick(
         "tick_ms": round(tick_duration_ms, 1),
         "api_req_per_sec": counter.per_second,
         "api_req_per_hour": counter.per_hour,
-    })
+    }
+    if equity is not None:
+        data["equity"] = str(equity)
+    await _write(grid_id, "tick", data)
 
 
 async def log_fill(
