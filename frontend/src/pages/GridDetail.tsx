@@ -25,7 +25,7 @@ const STRATEGY_LABELS: Record<string, string> = {
 };
 
 // Параметры для hot-update (можно менять на работающей сетке)
-const HOT_PARAMS = ["name", "lot_size", "lot_quote", "profit_step", "rebuild_timeout_sec", "adaptive_timer_sec", "auto_convert_to"];
+const HOT_PARAMS = ["name", "lot_size", "lot_quote", "profit_step", "rebuild_timeout_sec", "auto_convert_to"];
 
 interface EditForm {
   name: string;
@@ -36,7 +36,6 @@ interface EditForm {
   levels_above: string;
   levels_below: string;
   rebuild_timeout_sec: string;
-  adaptive_timer_sec: string;
   auto_convert_to: string;
 }
 
@@ -61,7 +60,6 @@ export function GridDetailPage() {
   if (!grid) return <div className="flex justify-center py-16"><Spinner /></div>;
 
   const isRunning = grid.status === "running";
-  const isAdaptive = grid.strategy === "adaptive" || grid.strategy === "adaptive_cap";
 
   const chartData = events
     .slice()
@@ -87,7 +85,6 @@ export function GridDetailPage() {
       levels_above: String(grid.levels_above),
       levels_below: String(grid.levels_below),
       rebuild_timeout_sec: String(grid.rebuild_timeout_sec),
-      adaptive_timer_sec: String(grid.adaptive_timer_sec ?? 15),
       auto_convert_to: grid.auto_convert_to ?? "",
     });
     setShowEdit(true);
@@ -107,7 +104,6 @@ export function GridDetailPage() {
       if (editForm.levels_above !== String(grid.levels_above)) payload.levels_above = Number(editForm.levels_above);
       if (editForm.levels_below !== String(grid.levels_below)) payload.levels_below = Number(editForm.levels_below);
       if (editForm.rebuild_timeout_sec !== String(grid.rebuild_timeout_sec)) payload.rebuild_timeout_sec = Number(editForm.rebuild_timeout_sec);
-      if (editForm.adaptive_timer_sec !== String(grid.adaptive_timer_sec ?? 15)) payload.adaptive_timer_sec = Number(editForm.adaptive_timer_sec);
       if (editForm.auto_convert_to !== (grid.auto_convert_to ?? "")) payload.auto_convert_to = editForm.auto_convert_to || null;
 
       if (Object.keys(payload).length === 0) {
@@ -242,17 +238,10 @@ export function GridDetailPage() {
             )}
             <div className="mt-1 text-[10px] text-white/30">Прибыль автоматически переводится в указанную валюту</div>
           </div>
-          {isAdaptive && (
-              <div className="rounded-xl bg-white/5 p-3">
-                <div className="text-xs text-white/40">Таймер адаптации</div>
-                <div className="mt-1 font-medium">{grid.adaptive_timer_sec} сек</div>
-                <div className="mt-1 text-[10px] text-white/30">Минимальный интервал между сдвигами подсетки</div>
-              </div>
-          )}
         </div>
       </Card>
 
-      <div className={`grid gap-4 ${isAdaptive ? "md:grid-cols-4" : "md:grid-cols-3"}`}>
+      <div className="grid gap-4 md:grid-cols-3">
         <Card>
           <div className="text-sm text-hint">Реализованная прибыль</div>
           <div className="mt-2 text-2xl font-bold">{grid.realized_pnl}</div>
@@ -265,14 +254,6 @@ export function GridDetailPage() {
           <div className="text-sm text-hint">Ордеров</div>
           <div className="mt-2 text-2xl font-bold">{grid.orders?.length ?? 0}</div>
         </Card>
-        {isAdaptive && (
-          <Card>
-            <div className="text-sm text-hint">Подсетка</div>
-            <div className="mt-2 text-sm">
-              {grid.adaptive_bottom_order_idx ?? "—"} → {grid.adaptive_top_order_idx ?? "—"}
-            </div>
-          </Card>
-        )}
       </div>
       <Card>
         <h2 className="mb-4 text-xl font-semibold">PnL</h2>
@@ -302,8 +283,6 @@ export function GridDetailPage() {
                       {order.side} @ {order.price} → {order.price_sell}
                     </span>
                     <span className="text-xs text-hint">кол-во: {order.amount}</span>
-{order.re_buy && <Badge tone="warn">повт.покупка</Badge>}
-                    {order.re_sell && <Badge tone="warn">повт.продажа</Badge>}
                     {order.count_complete > 0 && (
                       <span className="text-xs text-hint">циклы: {order.count_complete}</span>
                     )}
@@ -409,16 +388,6 @@ export function GridDetailPage() {
                   <div className="mt-1 text-[10px] text-white/30">Buy-ордера ниже текущей цены. Больше = шире покрытие</div>
                 </div>
               </div>
-              {isAdaptive && (
-                <>
-                  <h3 className="text-sm font-semibold text-white/70">Адаптивные параметры</h3>
-                  <div>
-                    <label className="mb-1 block text-xs text-white/50">Таймер адаптации (сек)</label>
-                    <Input value={editForm.adaptive_timer_sec} onChange={(e) => setEditForm({ ...editForm, adaptive_timer_sec: e.target.value })} />
-                    <div className="mt-1 text-[10px] text-white/30">Минимальный интервал между сдвигами подсетки</div>
-                  </div>
-                </>
-              )}
             </div>
 
             {error && <div className="text-sm text-red-300">{error}</div>}

@@ -31,8 +31,6 @@ class GridCreate(BaseModel):
     levels_above: int = Field(ge=0, le=100, description="Уровней выше центра")
     levels_below: int = Field(ge=0, le=100, description="Уровней ниже центра")
     rebuild_timeout_sec: int = Field(default=0, ge=0, le=86400)
-    # Адаптивные параметры (для strategy adaptive / adaptive_cap)
-    adaptive_timer_sec: int = Field(default=15, ge=5, le=3600)
     auto_convert_to: str | None = Field(default=None, max_length=10, description="Валюта для авто-конвертации прибыли (например USDC)")
 
 
@@ -47,7 +45,6 @@ class GridUpdate(BaseModel):
     levels_above: int | None = None
     levels_below: int | None = None
     rebuild_timeout_sec: int | None = None
-    adaptive_timer_sec: int | None = None
     auto_convert_to: str | None = None
 
 

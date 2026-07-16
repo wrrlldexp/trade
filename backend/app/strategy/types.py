@@ -46,8 +46,6 @@ class GridParams(StrategyModel):
     levels_above: int
     levels_below: int
     rebuild_timeout_sec: int = 3600
-    # Адаптивные параметры (strategy 5, 6)
-    adaptive_timer_sec: int = 15
     fee: Decimal = Decimal("0.001")  # Комиссия биржи (0.1% = 0.001)
 
 
@@ -67,9 +65,6 @@ class LiveOrder:
     exchange_order_id: str
     grid_index: int = 0
     price_sell: Decimal = Decimal("0")
-    prepay: Decimal = Decimal("0")
-    re_buy: bool = False
-    re_sell: bool = False
     profit: Decimal = Decimal("0")
     count_complete: int = 0
     created_at: datetime | None = None
@@ -83,9 +78,3 @@ class GridState:
     last_boundary_hit_at: datetime | None = None
     realized_pnl: Decimal = Decimal("0")
     total_trades: int = 0
-    # Адаптивная подсетка
-    adaptive_top_idx: int | None = None
-    adaptive_bottom_idx: int | None = None
-    prepay_base_tail: Decimal = Decimal("0")
-    prepay_quote_tail: Decimal = Decimal("0")
-    last_adaptive_at: datetime | None = None

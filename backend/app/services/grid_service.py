@@ -31,7 +31,14 @@ from app.models import (
 from app.strategy.engine import GridEngine
 from app.strategy.executor import Executor
 from app.strategy.paper_executor import PaperExecutor
+from app.strategy.reconciler import GridReconciler
 from app.strategy.types import GridParams, GridState, LiveOrder
+
+
+import os
+
+# Reconciler: GRID_RECONCILER_MODE = "off" | "dry_run" | "active"
+_RECONCILER_MODE = os.environ.get("GRID_RECONCILER_MODE", "dry_run")
 
 
 class GridRuntimeRegistry:
@@ -39,6 +46,7 @@ class GridRuntimeRegistry:
         self.engines: dict[uuid.UUID, GridEngine] = {}
         self.executors: dict[uuid.UUID, Executor] = {}
         self.states: dict[uuid.UUID, GridState] = {}
+        self.reconcilers: dict[uuid.UUID, GridReconciler] = {}
         self._locks: dict[uuid.UUID, asyncio.Lock] = {}
 
     def get_lock(self, grid_id: uuid.UUID) -> asyncio.Lock:
@@ -60,7 +68,6 @@ def _params_from_grid(grid: Grid) -> GridParams:
         levels_above=grid.levels_above,
         levels_below=grid.levels_below,
         rebuild_timeout_sec=grid.rebuild_timeout_sec,
-        adaptive_timer_sec=grid.adaptive_timer_sec,
     )
 
 
@@ -77,10 +84,6 @@ async def _persist_state(db: AsyncSession, grid: Grid, state: GridState) -> None
     grid.last_boundary_hit_at = state.last_boundary_hit_at
     grid.realized_pnl = state.realized_pnl
     grid.total_trades = state.total_trades
-    grid.adaptive_top_order_idx = state.adaptive_top_idx
-    grid.adaptive_bottom_order_idx = state.adaptive_bottom_idx
-    grid.prepay_base_tail = state.prepay_base_tail
-    grid.prepay_quote_tail = state.prepay_quote_tail
 
     existing_by_exchange_id = {
         order.exchange_order_id: order
@@ -108,9 +111,6 @@ async def _persist_state(db: AsyncSession, grid: Grid, state: GridState) -> None
                 price_sell=live_order.price_sell,
                 amount=live_order.amount,
                 exchange_order_id=live_order.exchange_order_id,
-                prepay=live_order.prepay,
-                re_buy=live_order.re_buy,
-                re_sell=live_order.re_sell,
                 profit=live_order.profit,
                 count_complete=live_order.count_complete,
                 filled_at=live_order.filled_at,
@@ -121,9 +121,6 @@ async def _persist_state(db: AsyncSession, grid: Grid, state: GridState) -> None
             model.status = live_order.status
             model.side = live_order.side
             model.amount = live_order.amount
-            model.prepay = live_order.prepay
-            model.re_buy = live_order.re_buy
-            model.re_sell = live_order.re_sell
             model.profit = live_order.profit
             model.count_complete = live_order.count_complete
             model.filled_at = live_order.filled_at
@@ -147,9 +144,6 @@ def _state_from_grid(grid: Grid) -> GridState:
             status=order.status,
             exchange_order_id=order.exchange_order_id or "",
             grid_index=order.grid_index,
-            prepay=order.prepay,
-            re_buy=order.re_buy,
-            re_sell=order.re_sell,
             profit=order.profit,
             count_complete=order.count_complete,
             created_at=order.created_at,
@@ -168,10 +162,6 @@ def _state_from_grid(grid: Grid) -> GridState:
         last_boundary_hit_at=grid.last_boundary_hit_at,
         realized_pnl=grid.realized_pnl,
         total_trades=grid.total_trades,
-        adaptive_top_idx=grid.adaptive_top_order_idx,
-        adaptive_bottom_idx=grid.adaptive_bottom_order_idx,
-        prepay_base_tail=grid.prepay_base_tail,
-        prepay_quote_tail=grid.prepay_quote_tail,
     )
 
 
@@ -243,6 +233,15 @@ async def _ensure_runtime(db: AsyncSession, grid: Grid) -> tuple[GridEngine, Gri
     registry.executors[grid.id] = executor
     registry.engines[grid.id] = engine
     registry.states[grid.id] = state
+
+    # Reconciler
+    if _RECONCILER_MODE != "off":
+        registry.reconcilers[grid.id] = GridReconciler(
+            executor,
+            grid.symbol,
+            dry_run=(_RECONCILER_MODE == "dry_run"),
+        )
+
     return engine, state
 
 
@@ -263,6 +262,7 @@ async def start_grid(db: AsyncSession, grid_id: uuid.UUID) -> Grid:
                 await close()
         registry.engines.pop(grid.id, None)
         registry.states.pop(grid.id, None)
+        registry.reconcilers.pop(grid.id, None)
 
         # Удаляем старые error-ордера перед новым запуском
         await db.execute(
@@ -330,6 +330,7 @@ async def stop_grid(db: AsyncSession, grid_id: uuid.UUID) -> Grid:
     grid.stopped_at = datetime.now(UTC)
     registry.states.pop(grid.id, None)
     registry.engines.pop(grid.id, None)
+    registry.reconcilers.pop(grid.id, None)
     removed_executor = registry.executors.pop(grid.id, None)
     if removed_executor is not None:
         close = getattr(removed_executor, "close", None)
@@ -402,6 +403,7 @@ async def emergency_stop_all(db: AsyncSession) -> dict:
             # Очищаем runtime
             registry.states.pop(grid.id, None)
             registry.engines.pop(grid.id, None)
+            registry.reconcilers.pop(grid.id, None)
             removed = registry.executors.pop(grid.id, None)
             if removed is not None:
                 close = getattr(removed, "close", None)
@@ -502,6 +504,26 @@ async def tick_grid(db: AsyncSession, grid_id: uuid.UUID) -> Grid:
             pnl_delta = new_state.realized_pnl - prev_pnl
             new_trades = new_state.total_trades - prev_trades
             registry.states[grid.id] = new_state
+
+            # --- Reconciler: сверка state↔биржа ---
+            reconciler = registry.reconcilers.get(grid.id)
+            if reconciler is not None:
+                report = await reconciler.enforce(new_state)
+                if report.has_issues:
+                    await bot_logger.warning(
+                        f"Reconciler: {report.summary()}",
+                        grid_id=grid.id,
+                    )
+                # Ghost fills → обработка стратегией
+                for ghost in report.needs_fill_processing:
+                    ghost.status = OrderStatus.FILLED
+                    ghost.filled_at = datetime.now(UTC)
+                    new_state = await engine.on_order_filled(new_state, ghost)
+                if report.needs_fill_processing:
+                    pnl_delta = new_state.realized_pnl - prev_pnl
+                    new_trades = new_state.total_trades - prev_trades
+                    registry.states[grid.id] = new_state
+
             await _persist_state(db, grid, new_state)
 
         # Activity log: каждый тик (вне lock — не мутирует state)

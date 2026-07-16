@@ -20,6 +20,7 @@ from app.db import AsyncSessionLocal
 from app.models import Grid, GridMode, GridStatus
 from app.models.enums import OrderStatus
 from app.services.grid_service import process_ws_fill, stop_grid, tick_grid, registry
+from app.services.stats_collector import GridStatsCollector
 from app.strategy.executors.ws_stream import ExchangeWsStream, WsOrderEvent
 
 configure_logging()
@@ -448,6 +449,10 @@ async def main() -> None:
                 if stream and not stream.connected:
                     log.warning("ws_health.disconnected", grid_id=str(grid_id))
 
+    # Stats collector — 60-second snapshots of grid/account metrics
+    stats_collector = GridStatsCollector(AsyncSessionLocal)
+    stats_collector_task = asyncio.create_task(stats_collector.run_forever())
+
     command_task = asyncio.create_task(consume_commands())
     heartbeat_task = asyncio.create_task(publish_heartbeat())
     sync_task = asyncio.create_task(sync_running_grids())
@@ -465,7 +470,7 @@ async def main() -> None:
     # Graceful shutdown
     all_tasks_to_cancel = [
         command_task, heartbeat_task, sync_task, watchdog_task,
-        api_stats_task, ws_health_task, *_tasks.values(),
+        api_stats_task, ws_health_task, stats_collector_task, *_tasks.values(),
     ]
     for task in all_tasks_to_cancel:
         task.cancel()
@@ -488,6 +493,7 @@ async def main() -> None:
     registry.executors.clear()
     registry.engines.clear()
     registry.states.clear()
+    registry.reconcilers.clear()
 
     await bot_logger.info("Воркер остановлен")
     log.info("worker.stopped")

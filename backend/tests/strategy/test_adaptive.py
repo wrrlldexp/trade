@@ -21,10 +21,6 @@ def adaptive_params() -> GridParams:
         levels_above=5,
         levels_below=5,
         rebuild_timeout_sec=3600,
-        adaptive_timer_sec=15,
-        prepay_base=Decimal("0.5"),
-        prepay_quote=Decimal("5000"),
-        prepay_amount=Decimal("0.05"),
     )
 
 
@@ -44,21 +40,9 @@ def adaptive_engine(adaptive_params: GridParams, adaptive_executor: PaperExecuto
 
 
 @pytest.mark.asyncio
-async def test_adaptive_builds_subgrid(adaptive_engine, adaptive_executor) -> None:
+async def test_adaptive_builds_grid(adaptive_engine, adaptive_executor) -> None:
     state = await adaptive_engine.build_initial_grid(Decimal("1000"))
     assert len(state.orders) == 10
-    assert state.adaptive_top_idx is None  # подсетка ещё не построена
-
-    ticker = Ticker(bid=Decimal("1000"), ask=Decimal("1000"))
-    state = adaptive_engine.build_adaptive_subgrid(state, ticker)
-
-    # Подсетка должна быть построена
-    assert state.adaptive_top_idx is not None
-    assert state.adaptive_bottom_idx is not None
-
-    # У некоторых ордеров должен быть prepay
-    orders_with_prepay = [o for o in state.orders if o.prepay > 0]
-    assert len(orders_with_prepay) > 0
 
 
 @pytest.mark.asyncio
@@ -85,10 +69,6 @@ async def test_adaptive_cap_strategy() -> None:
         levels_above=3,
         levels_below=3,
         rebuild_timeout_sec=3600,
-        adaptive_timer_sec=15,
-        prepay_base=Decimal("0.3"),
-        prepay_quote=Decimal("3000"),
-        prepay_amount=Decimal("0.05"),
     )
     executor = PaperExecutor(
         initial_base=Decimal("10"),

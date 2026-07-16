@@ -29,6 +29,7 @@ from app.models import (
 from app.schemas.common import GridOrderResponse, GridResponse, TradeEventResponse
 from app.schemas.grid import GridCreate, GridDetailResponse, GridUpdate
 from app.services.grid_service import start_grid, stop_grid
+from app.services.stats_query import get_grid_performance, get_grid_stat_series
 
 router = APIRouter()
 
@@ -95,7 +96,6 @@ async def create_grid(
         levels_above=payload.levels_above,
         levels_below=payload.levels_below,
         rebuild_timeout_sec=payload.rebuild_timeout_sec,
-        adaptive_timer_sec=payload.adaptive_timer_sec,
         auto_convert_to=payload.auto_convert_to,
     )
     db.add(grid)
@@ -119,7 +119,7 @@ async def get_grid(
 
 _SETTINGS_SNAPSHOT_FIELDS = [
     "strategy", "lot_size", "lot_quote", "profit_step", "grid_step",
-    "levels_above", "levels_below", "rebuild_timeout_sec", "adaptive_timer_sec",
+    "levels_above", "levels_below", "rebuild_timeout_sec",
     "auto_convert_to",
 ]
 
@@ -136,7 +136,7 @@ def _snapshot_settings(grid: Grid) -> dict:
 # (не влияют на структуру ордеров, применяются на следующем тике)
 _HOT_UPDATE_FIELDS = {
     "name", "lot_size", "lot_quote", "profit_step", "rebuild_timeout_sec",
-    "adaptive_timer_sec", "auto_convert_to",
+    "auto_convert_to",
 }
 
 
@@ -632,3 +632,55 @@ async def get_grid_report_text(
         media_type="text/plain; charset=utf-8",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+# ------------------------------------------------------------------
+# Статистика из снимков (GridStatSnapshot)
+# ------------------------------------------------------------------
+
+
+@router.get("/{grid_id}/stats")
+async def get_grid_stats(
+    grid_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_role(UserRole.VIEWER, UserRole.ADMIN, UserRole.SUPERADMIN, UserRole.ULTRAADMIN)),
+):
+    """Метрики производительности: earnings, drift, drawdown."""
+    await _get_grid(db, user, grid_id)
+    perf = await get_grid_performance(db, grid_id)
+    if perf is None:
+        raise HTTPException(status_code=404, detail="No stats snapshots yet")
+    return {
+        "grid_id": str(perf.grid_id),
+        "earnings_total": float(perf.earnings_total),
+        "earnings_total_pct": perf.earnings_total_pct,
+        "earnings_24h": float(perf.earnings_24h),
+        "earnings_24h_pct": perf.earnings_24h_pct,
+        "earnings_1h": float(perf.earnings_1h),
+        "earnings_1h_pct": perf.earnings_1h_pct,
+        "efficiency_pct": perf.efficiency_pct,
+        "profit_drift": float(perf.profit_drift),
+        "max_drift": float(perf.max_drift),
+        "max_drawdown": float(perf.max_drawdown),
+        "max_drawdown_pct": perf.max_drawdown_pct,
+        "current_net_asset": float(perf.current_net_asset),
+        "current_price": float(perf.current_price),
+        "total_trades": perf.total_trades,
+        "placed_orders": perf.placed_orders,
+        "first_snapshot_at": perf.first_snapshot_at.isoformat() if perf.first_snapshot_at else None,
+        "last_snapshot_at": perf.last_snapshot_at.isoformat() if perf.last_snapshot_at else None,
+        "snapshots_count": perf.snapshots_count,
+    }
+
+
+@router.get("/{grid_id}/stats/series")
+async def get_grid_stats_series(
+    grid_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_role(UserRole.VIEWER, UserRole.ADMIN, UserRole.SUPERADMIN, UserRole.ULTRAADMIN)),
+    hours: int = Query(default=24, ge=1, le=720, description="Период в часах"),
+):
+    """Временной ряд снимков для графиков."""
+    await _get_grid(db, user, grid_id)
+    series = await get_grid_stat_series(db, grid_id, hours=hours)
+    return {"grid_id": str(grid_id), "hours": hours, "points": len(series), "series": series}

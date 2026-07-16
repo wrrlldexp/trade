@@ -40,9 +40,6 @@ class GridOrderResponse(ORMModel):
     price_sell: Decimal
     amount: Decimal
     exchange_order_id: str | None
-    prepay: Decimal
-    re_buy: bool
-    re_sell: bool
     profit: Decimal
     count_complete: int
     created_at: datetime
@@ -75,15 +72,6 @@ class GridResponse(ORMModel):
     levels_below: int
     rebuild_timeout_sec: int
     last_boundary_hit_at: datetime | None
-    # Адаптивные параметры
-    adaptive_timer_sec: int
-    prepay_base: Decimal
-    prepay_quote: Decimal
-    prepay_amount: Decimal
-    prepay_base_tail: Decimal
-    prepay_quote_tail: Decimal
-    adaptive_top_order_idx: int | None
-    adaptive_bottom_order_idx: int | None
     # Тик
     tick_interval_sec: float
     # Статистика

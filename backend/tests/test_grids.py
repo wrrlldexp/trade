@@ -29,12 +29,10 @@ def test_create_adaptive_grid(client, auth_headers, seeded_users) -> None:
             "levels_above": 3,
             "levels_below": 3,
             "rebuild_timeout_sec": 60,
-            "adaptive_timer_sec": 15,
         },
     )
     assert resp.status_code == 200
     assert resp.json()["strategy"] == "adaptive"
-    assert resp.json()["adaptive_timer_sec"] == 15
 
 
 def test_list_grids(client, auth_headers, seeded_users) -> None:

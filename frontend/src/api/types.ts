@@ -54,15 +54,6 @@ export interface Grid {
   levels_below: number;
   rebuild_timeout_sec: number;
   last_boundary_hit_at: string | null;
-  // Адаптивные параметры
-  adaptive_timer_sec: number;
-  prepay_base?: string;
-  prepay_quote?: string;
-  prepay_amount?: string;
-  prepay_base_tail?: string;
-  prepay_quote_tail?: string;
-  adaptive_top_order_idx: number | null;
-  adaptive_bottom_order_idx: number | null;
   tick_interval_sec?: number;
   // Статистика
   total_trades: number;
@@ -84,9 +75,6 @@ export interface GridOrder {
   price_sell: string;
   amount: string;
   exchange_order_id: string | null;
-  prepay?: string;
-  re_buy: boolean;
-  re_sell: boolean;
   profit: string;
   count_complete: number;
   created_at: string;

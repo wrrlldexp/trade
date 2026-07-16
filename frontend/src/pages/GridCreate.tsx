@@ -33,12 +33,10 @@ export function GridCreatePage() {
     levels_above: "3",
     levels_below: "3",
     rebuild_timeout_sec: "3600",
-    adaptive_timer_sec: "15",
     auto_convert_to: "",
   });
 
   const [error, setError] = useState<string | null>(null);
-  const isAdaptive = form.strategy === "adaptive" || form.strategy === "adaptive_cap";
 
   const submit = async () => {
     setError(null);
@@ -54,7 +52,6 @@ export function GridCreatePage() {
         levels_above: Number(form.levels_above) || 0,
         levels_below: Number(form.levels_below) || 0,
         rebuild_timeout_sec: Number(form.rebuild_timeout_sec) || 3600,
-        adaptive_timer_sec: Number(form.adaptive_timer_sec) || 15,
         auto_convert_to: form.auto_convert_to || null,
       });
       navigate(`/grids/${grid.id}`);
@@ -129,15 +126,6 @@ export function GridCreatePage() {
           <div className="mt-1 text-[10px] text-white/30">Валюта для автоматического вывода прибыли. Пусто = не конвертировать</div>
         </div>
       </div>
-      {isAdaptive && (
-        <>
-          <h2 className="text-lg font-semibold">Адаптивные параметры</h2>
-          <div>
-            <Input value={form.adaptive_timer_sec} onChange={(event) => setForm({ ...form, adaptive_timer_sec: event.target.value })} placeholder="Таймер адаптации (сек)" />
-            <div className="mt-1 text-[10px] text-white/30">Минимальный интервал между сдвигами подсетки</div>
-          </div>
-        </>
-      )}
       {error && <div className="text-sm text-red-300">{error}</div>}
       <Button onClick={submit}>Создать</Button>
     </Card>
