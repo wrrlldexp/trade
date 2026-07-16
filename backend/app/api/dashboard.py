@@ -111,8 +111,11 @@ async def get_dashboard(
             order_stats[row.grid_id] = {"total": row.total, "filled": row.filled}
 
         avg_result = await db.execute(
-            select(GridOrder.grid_id, func.avg(GridOrder.price).label("avg_price"))
-            .where(GridOrder.grid_id.in_(grid_ids), GridOrder.side == OrderSide.BUY)
+            select(
+                GridOrder.grid_id,
+                func.avg((GridOrder.price + GridOrder.price_sell) / 2).label("avg_price"),
+            )
+            .where(GridOrder.grid_id.in_(grid_ids), GridOrder.status.in_((OrderStatus.PLACED, OrderStatus.FILLED)))
             .group_by(GridOrder.grid_id)
         )
         for row in avg_result.all():

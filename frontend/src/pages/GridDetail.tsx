@@ -43,8 +43,17 @@ export function GridDetailPage() {
   const { gridId = "" } = useParams();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const { data: grid } = useQuery({ queryKey: ["grid", gridId], queryFn: () => getGrid(gridId) });
-  const { data: events = [] } = useQuery({ queryKey: ["grid-events", gridId], queryFn: () => listGridEvents(gridId) });
+  const gridQueryEnabled = gridId.length > 0;
+  const { data: grid } = useQuery({
+    queryKey: ["grid", gridId],
+    queryFn: () => getGrid(gridId),
+    enabled: gridQueryEnabled,
+  });
+  const { data: events = [] } = useQuery({
+    queryKey: ["grid-events", gridId],
+    queryFn: () => listGridEvents(gridId),
+    enabled: gridQueryEnabled,
+  });
   const liveMessages = useGridEvents(gridId);
 
   const [error, setError] = useState("");

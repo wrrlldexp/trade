@@ -42,8 +42,6 @@ class GridStatsCollector:
         self._interval_sec = interval_sec
         # Аналог $oldNetAssets из legacy — предыдущий net_asset по account_id
         self._prev_net_assets: dict[uuid.UUID, Decimal] = {}
-        # Первый net_asset для расчёта profit_drift
-        self._first_net_assets: dict[uuid.UUID, Decimal] = {}
 
     async def collect_once(self) -> StatsCollectReport:
         """Один цикл сбора. Аналог тела while(true) из legacy."""
@@ -145,20 +143,18 @@ class GridStatsCollector:
                     # Курс
                     _, _, price = account_balances[aid]
 
-                    # Первый замер — запоминаем net_asset, НЕ создаём GridStatSnapshot
+                    # Первый замер — запоминаем net_asset
                     if aid not in self._prev_net_assets:
                         self._prev_net_assets[aid] = net_asset
-                        self._first_net_assets[aid] = net_asset
-                        report.grids_skipped += 1
-                        continue
 
                     # net_asset_sag = дельта с прошлого замера
                     prev = self._prev_net_assets[aid]
                     net_asset_sag = net_asset - prev
 
                     # profit_drift = расхождение расчёта с фактом
-                    first = self._first_net_assets[aid]
-                    actual_gain = net_asset - first
+                    # Используем start_amount из БД (реальный стартовый объём)
+                    start = grid.start_amount if grid.start_amount and grid.start_amount > 0 else net_asset
+                    actual_gain = net_asset - start
                     profit_drift = profit_math - actual_gain
 
                     db.add(GridStatSnapshot(

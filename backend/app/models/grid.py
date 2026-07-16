@@ -102,6 +102,11 @@ class Grid(Base, UUIDMixin, TimestampMixin):
         Numeric(20, 8), nullable=False, default=0
     )
 
+    # Стартовый объём средств при создании сетки (USDT)
+    start_amount: Mapped[Decimal] = mapped_column(
+        Numeric(20, 8), nullable=False, default=0
+    )
+
     # Авто-конвертация прибыли (например "USDC")
     auto_convert_to: Mapped[str | None] = mapped_column(
         String(10), nullable=True, default=None

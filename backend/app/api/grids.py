@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -460,12 +461,23 @@ async def get_grid_charts(
     )
     fill_logs = fill_result.scalars().all()
 
-    # Стартовый объём сетки (приблизительно: levels * lot * center_price)
-    total_levels = grid.levels_above + grid.levels_below
-    if grid.lot_quote:
-        start_amount = float(grid.lot_quote) * total_levels
+    # Стартовый объём сетки из БД (считается при build_initial_grid)
+    if grid.start_amount and float(grid.start_amount) > 0:
+        start_amount = float(grid.start_amount)
     else:
-        start_amount = float(grid.lot_size) * total_levels * float(grid.orders[0].price if grid.orders else 0)
+        # Fallback для старых сеток, у которых start_amount ещё не записан
+        total_levels = grid.levels_above + grid.levels_below
+        if grid.lot_quote:
+            start_amount = float(grid.lot_quote) * total_levels
+        else:
+            active_orders = [o for o in grid.orders if o.status in (OrderStatus.PLACED, OrderStatus.FILLED)]
+            if active_orders:
+                center_price = sum(
+                    (float(o.price) + float(o.price_sell)) / 2.0 for o in active_orders
+                ) / len(active_orders)
+            else:
+                center_price = float(grid.grid_step) * 10.0
+            start_amount = float(grid.lot_size) * total_levels * center_price
 
     # Прореживание: максимум ~1000 точек для графиков
     max_points = 1000
@@ -646,8 +658,8 @@ async def get_grid_stats(
     user: User = Depends(require_role(UserRole.VIEWER, UserRole.ADMIN, UserRole.SUPERADMIN, UserRole.ULTRAADMIN)),
 ):
     """Метрики производительности: earnings, drift, drawdown."""
-    await _get_grid(db, user, grid_id)
-    perf = await get_grid_performance(db, grid_id)
+    grid = await _get_grid(db, user, grid_id)
+    perf = await get_grid_performance(db, grid_id, start_amount=grid.start_amount or Decimal("0"))
     if perf is None:
         raise HTTPException(status_code=404, detail="No stats snapshots yet")
     return {

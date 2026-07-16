@@ -92,7 +92,6 @@ def test_collector_init():
     collector = GridStatsCollector(factory, interval_sec=30)
     assert collector._interval_sec == 30
     assert collector._prev_net_assets == {}
-    assert collector._first_net_assets == {}
 
 
 # ─── stats_query tests (using mock DB) ───
@@ -173,9 +172,10 @@ async def test_get_grid_performance_drawdown():
     db = _mock_db(snaps)
 
     perf = await get_grid_performance(db, grid_id)
-    # Peak was 1100, trough was 900 -> drawdown = -200
-    assert perf.max_drawdown == Decimal("-200")
-    assert perf.max_drawdown_pct == round(-200 / 1100 * 100, 4)
+    # Просадка = Остаток - Старт. base = first.net_asset = 1000
+    # min(1000-1000, 1100-1000, 900-1000, 1050-1000) = -100
+    assert perf.max_drawdown == Decimal("-100")
+    assert perf.max_drawdown_pct == round(-100 / 1000 * 100, 4)
 
 
 @pytest.mark.asyncio

@@ -32,6 +32,15 @@ async def _authenticate_ws(websocket: WebSocket, token: str | None) -> bool:
     return True
 
 
+async def _safe_send_text(websocket: WebSocket, data: str) -> bool:
+    """Отправляет сообщение и молча останавливается, если сокет уже закрыт."""
+    try:
+        await websocket.send_text(data)
+        return True
+    except (RuntimeError, OSError, WebSocketDisconnect):
+        return False
+
+
 @router.websocket("/grids/{grid_id}")
 async def grid_updates(websocket: WebSocket, grid_id: str, token: str | None = Query(default=None)) -> None:
     if not await _authenticate_ws(websocket, token):
@@ -52,10 +61,12 @@ async def grid_updates(websocket: WebSocket, grid_id: str, token: str | None = Q
             if pubsub is not None:
                 message = await pubsub.get_message(ignore_subscribe_messages=True, timeout=1.0)
                 if message and message.get("data"):
-                    await websocket.send_text(message["data"])
+                    if not await _safe_send_text(websocket, message["data"]):
+                        break
             else:
                 for local_message in consume_local_channel(channel):
-                    await websocket.send_text(local_message)
+                    if not await _safe_send_text(websocket, local_message):
+                        break
             await asyncio.sleep(0.2)
     except WebSocketDisconnect:
         pass
@@ -86,10 +97,12 @@ async def log_stream(websocket: WebSocket, token: str | None = Query(default=Non
             if pubsub is not None:
                 message = await pubsub.get_message(ignore_subscribe_messages=True, timeout=1.0)
                 if message and message.get("data"):
-                    await websocket.send_text(message["data"])
+                    if not await _safe_send_text(websocket, message["data"]):
+                        break
             else:
                 for local_message in consume_local_channel(channel):
-                    await websocket.send_text(local_message)
+                    if not await _safe_send_text(websocket, local_message):
+                        break
             await asyncio.sleep(0.2)
     except WebSocketDisconnect:
         pass

@@ -29,6 +29,10 @@ function useReconnectingWebSocket(
   onMessageRef.current = onMessage;
 
   useEffect(() => {
+    if (!path) {
+      return;
+    }
+
     mountedRef.current = true;
     retryRef.current = 0;
 
@@ -71,7 +75,7 @@ export function useGridEvents(gridId: string) {
   const [messages, setMessages] = useState<string[]>([]);
 
   useReconnectingWebSocket(
-    `/ws/grids/${gridId}`,
+    gridId ? `/ws/grids/${gridId}` : "",
     (data) => {
       setMessages((current) => [data, ...current].slice(0, 50));
     },

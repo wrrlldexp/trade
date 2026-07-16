@@ -50,6 +50,7 @@ class GridPerformance:
 async def get_grid_performance(
     db: AsyncSession,
     grid_id: UUID,
+    start_amount: Decimal = Decimal("0"),
 ) -> GridPerformance | None:
     """Compute performance metrics from GridStatSnapshot time series."""
     result = await db.execute(
@@ -99,17 +100,13 @@ async def get_grid_performance(
     # Drift: last and max
     max_drift = max(abs(s.profit_drift) for s in snapshots)
 
-    # Drawdown: peak-to-trough on net_asset
-    peak = Decimal(0)
-    max_drawdown = Decimal(0)
-    for s in snapshots:
-        if s.net_asset > peak:
-            peak = s.net_asset
-        dd = s.net_asset - peak
-        if dd < max_drawdown:
-            max_drawdown = dd
-
-    max_drawdown_pct = float(max_drawdown / peak * 100) if peak > 0 else 0.0
+    # Просадка = Остаток - Стартовый объём
+    # Используем start_amount если передан, иначе first snapshot net_asset
+    base = start_amount if start_amount > 0 else first.net_asset
+    current_drawdown = last.net_asset - base
+    # Минимальная просадка за весь период (worst case)
+    max_drawdown = min((s.net_asset - base) for s in snapshots)
+    max_drawdown_pct = float(max_drawdown / base * 100) if base > 0 else 0.0
 
     return GridPerformance(
         grid_id=grid_id,

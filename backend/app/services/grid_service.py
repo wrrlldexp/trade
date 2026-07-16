@@ -154,7 +154,8 @@ def _state_from_grid(grid: Grid) -> GridState:
     ]
     center_price = grid.grid_step * Decimal("10")
     if live_orders:
-        total = sum((order.price for order in live_orders), start=Decimal("0"))
+        # Центр сетки считаем по середине пары buy/sell, а не по нижней границе buy.
+        total = sum(((order.price + order.price_sell) / Decimal("2") for order in live_orders), start=Decimal("0"))
         center_price = total / Decimal(len(live_orders))
     return GridState(
         center_price=center_price,
@@ -209,6 +210,17 @@ async def _ensure_runtime(db: AsyncSession, grid: Grid) -> tuple[GridEngine, Gri
         state = await engine.build_initial_grid(center_price)
         state.realized_pnl = prev_pnl
         state.total_trades = prev_trades
+
+        # Считаем и сохраняем стартовый объём средств
+        start_amount = Decimal("0")
+        for o in state.orders:
+            if o.status == OrderStatus.PLACED:
+                if o.side == OrderSide.BUY:
+                    start_amount += o.price * o.amount  # замороженные USDT
+                else:
+                    start_amount += o.amount * center_price  # base по текущей цене
+
+        grid.start_amount = start_amount
 
         # Сохраняем ордера в БД сразу
         await _persist_state(db, grid, state)
@@ -509,7 +521,11 @@ async def tick_grid(db: AsyncSession, grid_id: uuid.UUID) -> Grid:
             reconciler = registry.reconcilers.get(grid.id)
             if reconciler is not None:
                 report = await reconciler.enforce(new_state)
-                if report.has_issues:
+                has_real_issues = (
+                    report.orphans_found or report.ghosts_found
+                    or report.stale_cancels_found or report.lost_levels
+                )
+                if has_real_issues:
                     await bot_logger.warning(
                         f"Reconciler: {report.summary()}",
                         grid_id=grid.id,
@@ -529,21 +545,18 @@ async def tick_grid(db: AsyncSession, grid_id: uuid.UUID) -> Grid:
         # Activity log: каждый тик (вне lock — не мутирует state)
         placed_count = sum(1 for o in new_state.orders if o.status == OrderStatus.PLACED)
 
-        # Equity = стоимость всех ордеров (quote) + base по текущей цене + realized PnL
-        # BUY ордера: заморозили quote (price * amount), при fill получим base
-        # SELL ордера: держим base (amount), при fill получим quote
-        equity = new_state.realized_pnl
+        # Остаток = фиатный остаток + вся крипта × текущий курс
+        # Приближение: start_amount как база + стоимость placed ордеров по текущей цене
+        # + realized_pnl (накопленная прибыль)
+        placed_value = Decimal("0")
         for o in new_state.orders:
             if o.status == OrderStatus.PLACED:
                 if o.side == OrderSide.BUY:
-                    equity += o.price * o.amount  # замороженные USDT
+                    placed_value += o.price * o.amount  # замороженные USDT
                 else:
-                    equity += o.amount * ticker.mid  # base по текущей цене
-            elif o.status == OrderStatus.FILLED:
-                if o.side == OrderSide.BUY:
-                    equity += o.amount * ticker.mid  # купленный base по текущей цене
-                else:
-                    equity += o.price_sell * o.amount  # полученные USDT
+                    placed_value += o.amount * ticker.mid  # base по текущей цене
+
+        equity = placed_value + new_state.realized_pnl
 
         await grid_activity_logger.log_tick(
             grid.id,
